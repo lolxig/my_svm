@@ -1400,11 +1400,19 @@ public class svm {
         double rho;
     }
 
-    ;
-
-    static decision_function svm_train_one(
-            svm_problem prob, svm_parameter param,
-            double Cp, double Cn) {
+    /**
+     * 训练单个决策参数.
+     *
+     * @param prob 排列好的数据集
+     * @param param 模型参数
+     * @param Cp 第一个类的权重
+     * @param Cn 第二个类的权重
+     * @return 训练好的决策参数
+     */
+    static decision_function svm_train_one(svm_problem prob,
+                                           svm_parameter param,
+                                           double Cp,
+                                           double Cn) {
         double[] alpha = new double[prob.l];
         Solver.SolutionInfo si = new Solver.SolutionInfo();
         switch (param.svm_type) {
@@ -1621,6 +1629,7 @@ public class svm {
     }
 
     // Cross-validation decision values for probability estimates
+    //概率估计的交叉验证决策值
     private static void svm_binary_svc_probability(svm_problem prob, svm_parameter param, double Cp, double Cn, double[] probAB) {
         int i;
         int nr_fold = 5;
@@ -1741,9 +1750,7 @@ public class svm {
                                           int[][] label_ret,
                                           int[][] start_ret,
                                           int[][] count_ret,
-                                          int[] perm
-    ) {
-
+                                          int[] perm) {
         int l = prob.l;
         int max_nr_class = 16;  //初始最大支持16个类别
         int nr_class = 0;   //类别的个数
@@ -1781,34 +1788,32 @@ public class svm {
             }
         }
 
-        //
-        // Labels are ordered by their first occurrence in the training set.
-        // However, for two-class sets with -1/+1 labels and -1 appears first,
-        // we swap labels to ensure that internally the binary SVM has positive data corresponding to the +1 instances.
-        //
+        //如果类别只有两个，并且它们的标签为1和-1，转换成0和1
         if (nr_class == 2 && label[0] == -1 && label[1] == +1) {
-            do {
+            {
                 int tmp = label[0];
                 label[0] = label[1];
                 label[1] = tmp;
-            } while (false);
-            do {
+            }
+            {
                 int tmp = count[0];
                 count[0] = count[1];
                 count[1] = tmp;
-            } while (false);
-            for (int i = 0; i < l; i++) {
+            }
+            for (int i = 0; i < l; i++)
                 if (data_label[i] == 0)
                     data_label[i] = 1;
                 else
                     data_label[i] = 0;
-            }
+
         }
 
+        //记录每个类的开始位置
         int[] start = new int[nr_class];
         start[0] = 0;
         for (int i = 1; i < nr_class; i++)
             start[i] = start[i - 1] + count[i - 1];
+        //按照类别排序
         for (int i = 0; i < l; i++) {
             perm[start[data_label[i]]] = i;
             ++start[data_label[i]];
@@ -1888,24 +1893,28 @@ public class svm {
             //将训练数据按同一类别分组
             svm_group_classes(prob, tmp_nr_class, tmp_label, tmp_start, tmp_count, perm);
             int nr_class = tmp_nr_class[0]; //类别个数
-            int[] label = tmp_label[0];
-            int[] start = tmp_start[0];
-            int[] count = tmp_count[0];
+            int[] label = tmp_label[0];     //类别标签
+            int[] start = tmp_start[0];     //每个标签开始的位置
+            int[] count = tmp_count[0];     //每个标签对应的数据量
 
+            //如果只有一个类，报错
             if (nr_class == 1)
                 svm.info("WARNING: training data in only one class. See README for details.\n");
 
+            //将数据集按照上述的类别排列在一起
             svm_node[][] x = new svm_node[l][];
-            int i;
-            for (i = 0; i < l; i++)
+            for (int i = 0; i < l; i++)
                 x[i] = prob.x[perm[i]];
 
-            // calculate weighted C
-
+            //如果有类权重，则计算，如果没有，则设置为默认，即所有类权重一样
             double[] weighted_C = new double[nr_class];
-            for (i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++)
                 weighted_C[i] = param.C;
-            for (i = 0; i < param.nr_weight; i++) {
+
+            //nr_weight记录了从命令行输入的需要设置权重的标签的数量
+            //weight_label记录了从命令行输入的需要设置权重的标签值
+            //weight记录了从命令行输入的需要设置的权重，与weight_label一起使用
+            for (int i = 0; i < param.nr_weight; i++) {
                 int j;
                 for (j = 0; j < nr_class; j++)
                     if (param.weight_label[i] == label[j])
@@ -1916,38 +1925,44 @@ public class svm {
                     weighted_C[j] *= param.weight[i];
             }
 
-            // train k*(k-1)/2 models
-
+            //对于多分类问题，采用1-V-1的方式构造分类器，最后判断采用竞争方式
+            //训练k*(k-1)/2个模型
             boolean[] nonzero = new boolean[l];
-            for (i = 0; i < l; i++)
+            for (int i = 0; i < l; i++)
                 nonzero[i] = false;
+            //取k*(k-1)/2个决策函数
             decision_function[] f = new decision_function[nr_class * (nr_class - 1) / 2];
 
+            //做概率估计，暂时不知道是干啥的
             double[] probA = null, probB = null;
             if (param.probability == 1) {
                 probA = new double[nr_class * (nr_class - 1) / 2];
                 probB = new double[nr_class * (nr_class - 1) / 2];
             }
 
+            //训练k*(k-1)/2个模型
             int p = 0;
-            for (i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++)
                 for (int j = i + 1; j < nr_class; j++) {
+                    //建立一个副数据集，按照类标签排序，并填充l，x，y，即样本大小，特征集，标签集
                     svm_problem sub_prob = new svm_problem();
                     int si = start[i], sj = start[j];
                     int ci = count[i], cj = count[j];
                     sub_prob.l = ci + cj;
                     sub_prob.x = new svm_node[sub_prob.l][];
                     sub_prob.y = new double[sub_prob.l];
-                    int k;
-                    for (k = 0; k < ci; k++) {
+
+                    //填充子数据集的数据
+                    for (int k = 0; k < ci; k++) {
                         sub_prob.x[k] = x[si + k];
                         sub_prob.y[k] = +1;
                     }
-                    for (k = 0; k < cj; k++) {
+                    for (int k = 0; k < cj; k++) {
                         sub_prob.x[ci + k] = x[sj + k];
                         sub_prob.y[ci + k] = -1;
                     }
 
+                    //做概率估计，暂时不知道是干啥的
                     if (param.probability == 1) {
                         double[] probAB = new double[2];
                         svm_binary_svc_probability(sub_prob, param, weighted_C[i], weighted_C[j], probAB);
@@ -1955,11 +1970,12 @@ public class svm {
                         probB[p] = probAB[1];
                     }
 
+                    //训练单个决策参数，主要是训练alpha和b
                     f[p] = svm_train_one(sub_prob, param, weighted_C[i], weighted_C[j]);
-                    for (k = 0; k < ci; k++)
+                    for (int k = 0; k < ci; k++)
                         if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
                             nonzero[si + k] = true;
-                    for (k = 0; k < cj; k++)
+                    for (int k = 0; k < cj; k++)
                         if (!nonzero[sj + k] && Math.abs(f[p].alpha[ci + k]) > 0)
                             nonzero[sj + k] = true;
                     ++p;
@@ -1970,17 +1986,17 @@ public class svm {
             model.nr_class = nr_class;
 
             model.label = new int[nr_class];
-            for (i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++)
                 model.label[i] = label[i];
 
             model.rho = new double[nr_class * (nr_class - 1) / 2];
-            for (i = 0; i < nr_class * (nr_class - 1) / 2; i++)
+            for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
                 model.rho[i] = f[i].rho;
 
             if (param.probability == 1) {
                 model.probA = new double[nr_class * (nr_class - 1) / 2];
                 model.probB = new double[nr_class * (nr_class - 1) / 2];
-                for (i = 0; i < nr_class * (nr_class - 1) / 2; i++) {
+                for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++) {
                     model.probA[i] = probA[i];
                     model.probB[i] = probB[i];
                 }
@@ -1992,7 +2008,7 @@ public class svm {
             int total_sv = 0;
             int[] nz_count = new int[nr_class];
             model.nSV = new int[nr_class];
-            for (i = 0; i < nr_class; i++) {
+            for (int i = 0; i < nr_class; i++) {
                 int nSV = 0;
                 for (int j = 0; j < count[i]; j++)
                     if (nonzero[start[i] + j]) {
@@ -2009,7 +2025,7 @@ public class svm {
             model.SV = new svm_node[total_sv][];
             model.sv_indices = new int[total_sv];
             p = 0;
-            for (i = 0; i < l; i++)
+            for (int i = 0; i < l; i++)
                 if (nonzero[i]) {
                     model.SV[p] = x[i];
                     model.sv_indices[p++] = perm[i] + 1;
@@ -2017,15 +2033,15 @@ public class svm {
 
             int[] nz_start = new int[nr_class];
             nz_start[0] = 0;
-            for (i = 1; i < nr_class; i++)
+            for (int i = 1; i < nr_class; i++)
                 nz_start[i] = nz_start[i - 1] + nz_count[i - 1];
 
             model.sv_coef = new double[nr_class - 1][];
-            for (i = 0; i < nr_class - 1; i++)
+            for (int i = 0; i < nr_class - 1; i++)
                 model.sv_coef[i] = new double[total_sv];
 
             p = 0;
-            for (i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++)
                 for (int j = i + 1; j < nr_class; j++) {
                     // classifier (i,j): coefficients with
                     // i are in sv_coef[j-1][nz_start[i]...],
