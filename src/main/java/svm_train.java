@@ -143,7 +143,7 @@ class svm_train {
 
     public static void main(String argv[]) throws IOException {
         //输入命令行参数
-        String inputParams = "E:\\论文\\小论文两篇\\IDS实验\\out.csv";
+        String inputParams = "data/testSet.txt";
         //切割命令行参数
         String[] params = inputParams.split(" ");
 
@@ -176,7 +176,7 @@ class svm_train {
         param.gamma = 0;    // 1/num_features
         param.coef0 = 0;
         param.nu = 0.5;
-        param.cache_size = 100;
+        param.cache_size = 100; //默认缓存100MB
         param.C = 1;
         param.eps = 1e-3;
         param.p = 0.1;

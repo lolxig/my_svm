@@ -143,10 +143,10 @@ abstract class QMatrix {
     abstract double[] get_QD();
 
     abstract void swap_index(int i, int j);
-};
+}
 
 abstract class Kernel extends QMatrix {
-    private svm_node[][] x;
+    private svm_node[][] x; //特征集
     private final double[] x_square;
 
     // svm_parameter
@@ -199,14 +199,22 @@ abstract class Kernel extends QMatrix {
         }
     }
 
+    /**
+     * Kernel构造函数.
+     *
+     * @param l     样本大小
+     * @param x_    样本特征集
+     * @param param 样本入参
+     */
     Kernel(int l, svm_node[][] x_, svm_parameter param) {
-        this.kernel_type = param.kernel_type;
-        this.degree = param.degree;
-        this.gamma = param.gamma;
-        this.coef0 = param.coef0;
+        this.kernel_type = param.kernel_type;   //核函数类型
+        this.degree = param.degree; //多项式核的d
+        this.gamma = param.gamma;   //多项式核、高斯核、sigmoid核的gamma
+        this.coef0 = param.coef0;   //多项式核、sigmoid核的c
 
-        x = (svm_node[][]) x_.clone();
+        x = x_.clone(); //克隆特征集
 
+        //如果是高斯核，计算x的内积，并存放起来
         if (kernel_type == svm_parameter.RBF) {
             x_square = new double[l];
             for (int i = 0; i < l; i++)
@@ -215,6 +223,7 @@ abstract class Kernel extends QMatrix {
             x_square = null;
     }
 
+    //计算两个向量的内积
     static double dot(svm_node[] x, svm_node[] y) {
         double sum = 0;
         int xlen = x.length;
@@ -348,10 +357,10 @@ class Solver {
     // java: information about solution except alpha,
     // because we cannot return multiple values otherwise...
     static class SolutionInfo {
-        double obj;
-        double rho;
-        double upper_bound_p;
-        double upper_bound_n;
+        double obj; //obj为SVM文件转换为的二次规划求解得到的最小值
+        double rho; //rho为判决函数的偏置项b
+        double upper_bound_p;   //边界
+        double upper_bound_n;   //边界
         double r;    // for Solver_NU
     }
 
@@ -430,8 +439,30 @@ class Solver {
         }
     }
 
-    void Solve(int l, QMatrix Q, double[] p_, byte[] y_,
-               double[] alpha_, double Cp, double Cn, double eps, SolutionInfo si, int shrinking) {
+    /**
+     * 使用SMO算法求解对偶问题.
+     *
+     * @param l         待求数据集大小
+     * @param Q
+     * @param p_
+     * @param y_
+     * @param alpha_
+     * @param Cp
+     * @param Cn
+     * @param eps
+     * @param si
+     * @param shrinking
+     */
+    void Solve(int l,
+               QMatrix Q,
+               double[] p_,
+               byte[] y_,
+               double[] alpha_,
+               double Cp, double Cn,
+               double eps,
+               SolutionInfo si,
+               int shrinking) {
+
         this.l = l;
         this.Q = Q;
         QD = Q.get_QD();
@@ -1059,14 +1090,22 @@ final class Solver_NU extends Solver {
 // Q matrices for various formulations
 //
 class SVC_Q extends Kernel {
-    private final byte[] y;
-    private final Cache cache;
+    private final byte[] y; //特征集
+    private final Cache cache;  //缓存数据
     private final double[] QD;
 
+    /**
+     * Q矩阵
+     *
+     * @param prob  问题数据集
+     * @param param 参数集
+     * @param y_    归一化之后的y，只能是+1和-1
+     */
     SVC_Q(svm_problem prob, svm_parameter param, byte[] y_) {
+        //保存数据集大小，保存数据集，保存输入参数
         super(prob.l, prob.x, param);
-        y = (byte[]) y_.clone();
-        cache = new Cache(prob.l, (long) (param.cache_size * (1 << 20)));
+        y = y_.clone(); //克隆特征集
+        cache = new Cache(prob.l, (long) (param.cache_size * (1 << 20)));   //申请缓存，默认param.cache_size为100，则默认缓存大小为100MB
         QD = new double[prob.l];
         for (int i = 0; i < prob.l; i++)
             QD[i] = kernel_function(i, i);
@@ -1227,34 +1266,53 @@ public class svm {
         svm_print_string.print(s);
     }
 
-    private static void solve_c_svc(svm_problem prob, svm_parameter param,
-                                    double[] alpha, Solver.SolutionInfo si,
-                                    double Cp, double Cn) {
+
+    /**
+     * 训练单个C_SVC模型.
+     *
+     * @param prob  子数据集
+     * @param param 输入参数
+     * @param alpha 需要输出的alpha值
+     * @param si    需要输出的偏置项等参数
+     * @param Cp    类别i的权重
+     * @param Cn    类别j的权重
+     */
+    private static void solve_c_svc(svm_problem prob,
+                                    svm_parameter param,
+                                    double[] alpha,
+                                    Solver.SolutionInfo si,
+                                    double Cp,
+                                    double Cn) {
+        //获取子数据集大小
         int l = prob.l;
-        double[] minus_ones = new double[l];
+        double[] minus_ones = new double[l];    //-1
         byte[] y = new byte[l];
 
-        int i;
-
-        for (i = 0; i < l; i++) {
+        //填充alpha初始值和-1的初始值，这里存在重复填充的问题
+        for (int i = 0; i < l; i++) {
             alpha[i] = 0;
             minus_ones[i] = -1;
-            if (prob.y[i] > 0) y[i] = +1;
-            else y[i] = -1;
+            if (prob.y[i] > 0)
+                y[i] = +1;
+            else
+                y[i] = -1;
         }
 
+        //将参数输入，并进行训练
         Solver s = new Solver();
-        s.Solve(l, new SVC_Q(prob, param, y), minus_ones, y,
-                alpha, Cp, Cn, param.eps, si, param.shrinking);
+        //使用SMO算法求解对偶问题
+        s.Solve(l, new SVC_Q(prob, param, y), minus_ones, y, alpha, Cp, Cn, param.eps, si, param.shrinking);
 
+        //alpha对权重的均值
         double sum_alpha = 0;
-        for (i = 0; i < l; i++)
+        for (int i = 0; i < l; i++)
             sum_alpha += alpha[i];
 
         if (Cp == Cn)
             svm.info("nu = " + sum_alpha / (Cp * prob.l) + "\n");
 
-        for (i = 0; i < l; i++)
+        //得到alpha*y
+        for (int i = 0; i < l; i++)
             alpha[i] *= y[i];
     }
 
@@ -1403,18 +1461,21 @@ public class svm {
     /**
      * 训练单个决策参数.
      *
-     * @param prob 排列好的数据集
+     * @param prob  排列好的数据集
      * @param param 模型参数
-     * @param Cp 第一个类的权重
-     * @param Cn 第二个类的权重
+     * @param Cp    第一个类的权重
+     * @param Cn    第二个类的权重
      * @return 训练好的决策参数
      */
     static decision_function svm_train_one(svm_problem prob,
                                            svm_parameter param,
                                            double Cp,
                                            double Cn) {
+        //待求的alpha值
         double[] alpha = new double[prob.l];
+        //待求的偏移项的值
         Solver.SolutionInfo si = new Solver.SolutionInfo();
+        //根据传入的参数选择训练模型
         switch (param.svm_type) {
             case svm_parameter.C_SVC:
                 solve_c_svc(prob, param, alpha, si, Cp, Cn);
@@ -1433,12 +1494,14 @@ public class svm {
                 break;
         }
 
+        //打印得到的参数
+        //obj 将SVM转换为二次规划求得的最小值
+        //rho 判决函数的偏置项b
         svm.info("obj = " + si.obj + ", rho = " + si.rho + "\n");
 
-        // output SVs
-
-        int nSV = 0;
-        int nBSV = 0;
+        //输出支持向量
+        int nSV = 0;    //标准支持向量个数(0<a[i]<c)
+        int nBSV = 0;   //边界上的支持向量个数(a[i]=c)
         for (int i = 0; i < prob.l; i++) {
             if (Math.abs(alpha[i]) > 0) {
                 ++nSV;
@@ -1452,8 +1515,10 @@ public class svm {
             }
         }
 
+        //打印支持向量信息
         svm.info("nSV = " + nSV + ", nBSV = " + nBSV + "\n");
 
+        //保存训练参数
         decision_function f = new decision_function();
         f.alpha = alpha;
         f.rho = si.rho;
@@ -1942,17 +2007,21 @@ public class svm {
 
             //训练k*(k-1)/2个模型
             int p = 0;
-            for (int i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++) {
                 for (int j = i + 1; j < nr_class; j++) {
                     //建立一个副数据集，按照类标签排序，并填充l，x，y，即样本大小，特征集，标签集
                     svm_problem sub_prob = new svm_problem();
+                    //si为类别i的起始点，sj为类别j的起始点
                     int si = start[i], sj = start[j];
+                    //ci为类别i的样本数量，cj为类别j的样本数量
                     int ci = count[i], cj = count[j];
+
+                    //子数据集为两个大小为两个类别的数据集的叠加
                     sub_prob.l = ci + cj;
                     sub_prob.x = new svm_node[sub_prob.l][];
                     sub_prob.y = new double[sub_prob.l];
 
-                    //填充子数据集的数据
+                    //填充类别i和类别j的数据到子数据集，正例填充+1，反例填充-1
                     for (int k = 0; k < ci; k++) {
                         sub_prob.x[k] = x[si + k];
                         sub_prob.y[k] = +1;
@@ -1970,8 +2039,10 @@ public class svm {
                         probB[p] = probAB[1];
                     }
 
-                    //训练单个决策参数，主要是训练alpha和b
+                    //针对类别i和类别j训练单个决策参数，主要是训练alpha和b
                     f[p] = svm_train_one(sub_prob, param, weighted_C[i], weighted_C[j]);
+
+                    //修改nonzero数组，将alpha大于0的对应位置改为true，nonzero为true的表示是支持向量
                     for (int k = 0; k < ci; k++)
                         if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
                             nonzero[si + k] = true;
@@ -1980,15 +2051,18 @@ public class svm {
                             nonzero[sj + k] = true;
                     ++p;
                 }
+            }
 
-            // build output
+            //填充svm_model对象model
 
+            //填充类别数量
             model.nr_class = nr_class;
 
+            //填充每个类的标签
             model.label = new int[nr_class];
-            for (int i = 0; i < nr_class; i++)
-                model.label[i] = label[i];
+            System.arraycopy(label, 0, model.label, 0, nr_class);
 
+            //填充判决函数偏置项b
             model.rho = new double[nr_class * (nr_class - 1) / 2];
             for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
                 model.rho[i] = f[i].rho;
@@ -2005,6 +2079,7 @@ public class svm {
                 model.probB = null;
             }
 
+            //支持向量总个数(对于两类来说，因为只有一个分类模型Total nSV = nSV，但是对于多类，这个是各个分类模型的nSV之和)
             int total_sv = 0;
             int[] nz_count = new int[nr_class];
             model.nSV = new int[nr_class];
@@ -2021,11 +2096,13 @@ public class svm {
 
             svm.info("Total nSV = " + total_sv + "\n");
 
+            //模型支持向量总数
             model.l = total_sv;
             model.SV = new svm_node[total_sv][];
             model.sv_indices = new int[total_sv];
             p = 0;
             for (int i = 0; i < l; i++)
+                //如果是支持向量，则填充
                 if (nonzero[i]) {
                     model.SV[p] = x[i];
                     model.sv_indices[p++] = perm[i] + 1;
@@ -2036,6 +2113,7 @@ public class svm {
             for (int i = 1; i < nr_class; i++)
                 nz_start[i] = nz_start[i - 1] + nz_count[i - 1];
 
+            //填充支持向量系数
             model.sv_coef = new double[nr_class - 1][];
             for (int i = 0; i < nr_class - 1; i++)
                 model.sv_coef[i] = new double[total_sv];
@@ -2053,12 +2131,11 @@ public class svm {
                     int cj = count[j];
 
                     int q = nz_start[i];
-                    int k;
-                    for (k = 0; k < ci; k++)
+                    for (int k = 0; k < ci; k++)
                         if (nonzero[si + k])
                             model.sv_coef[j - 1][q++] = f[p].alpha[k];
                     q = nz_start[j];
-                    for (k = 0; k < cj; k++)
+                    for (int k = 0; k < cj; k++)
                         if (nonzero[sj + k])
                             model.sv_coef[i][q++] = f[p].alpha[ci + k];
                     ++p;
