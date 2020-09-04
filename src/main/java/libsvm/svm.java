@@ -1300,14 +1300,10 @@ public class svm {
     // construct and solve various formulations
     //
     public static final int LIBSVM_VERSION = 324;
+
     public static final Random rand = new Random();
 
-    private static svm_print_interface svm_print_stdout = new svm_print_interface() {
-        public void print(String s) {
-            System.out.print(s);
-            System.out.flush();
-        }
-    };
+    private static final svm_print_interface svm_print_stdout = System.out::print;
 
     private static svm_print_interface svm_print_string = svm_print_stdout;
 
@@ -2298,18 +2294,27 @@ public class svm {
         }
     }
 
+    /**
+     * 获取SVM模型的类型.
+     */
     public static int svm_get_svm_type(svm_model model) {
         return model.param.svm_type;
     }
 
+    /**
+     * 获取SVM模型的类别个数.
+     */
     public static int svm_get_nr_class(svm_model model) {
         return model.nr_class;
     }
 
+    /**
+     * 将模型标签存储到{@code label}里面去
+     */
     public static void svm_get_labels(svm_model model, int[] label) {
         if (model.label != null)
-            for (int i = 0; i < model.nr_class; i++)
-                label[i] = model.label[i];
+            if (model.nr_class >= 0)
+                System.arraycopy(model.label, 0, label, 0, model.nr_class);
     }
 
     public static void svm_get_sv_indices(svm_model model, int[] indices) {
@@ -2332,14 +2337,22 @@ public class svm {
         }
     }
 
+    /**
+     * 模型预测，决策函数为  f(x)=sign(wx + b).
+     *
+     * @param model      模型
+     * @param x          样本
+     * @param dec_values 决策值向量
+     * @return 分类结果
+     */
     public static double svm_predict_values(svm_model model, svm_node[] x, double[] dec_values) {
-        int i;
+        //one_class或者是回归预测
         if (model.param.svm_type == svm_parameter.ONE_CLASS ||
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR) {
             double[] sv_coef = model.sv_coef[0];
             double sum = 0;
-            for (i = 0; i < model.l; i++)
+            for (int i = 0; i < model.l; i++)
                 sum += sv_coef[i] * Kernel.k_function(x, model.SV[i], model.param);
             sum -= model.rho[0];
             dec_values[0] = sum;
@@ -2348,51 +2361,55 @@ public class svm {
                 return (sum > 0) ? 1 : -1;
             else
                 return sum;
+        //分类预测
         } else {
-            int nr_class = model.nr_class;
-            int l = model.l;
+            int nr_class = model.nr_class;  //类别个数
+            int l = model.l;    //支持向量个数
 
             double[] kvalue = new double[l];
-            for (i = 0; i < l; i++)
+            //求wx.
+            for (int i = 0; i < l; i++)
                 kvalue[i] = Kernel.k_function(x, model.SV[i], model.param);
 
             int[] start = new int[nr_class];
             start[0] = 0;
-            for (i = 1; i < nr_class; i++)
+            //记录每个类别的支持向量开始点
+            for (int i = 1; i < nr_class; i++)
                 start[i] = start[i - 1] + model.nSV[i - 1];
 
             int[] vote = new int[nr_class];
-            for (i = 0; i < nr_class; i++)
+            for (int i = 0; i < nr_class; i++)
                 vote[i] = 0;
 
             int p = 0;
-            for (i = 0; i < nr_class; i++)
+            //一共有 nr_class * (nr_class - 1)个决策函数
+            for (int i = 0; i < nr_class; i++)
                 for (int j = i + 1; j < nr_class; j++) {
                     double sum = 0;
-                    int si = start[i];
-                    int sj = start[j];
-                    int ci = model.nSV[i];
-                    int cj = model.nSV[j];
+                    int si = start[i];  //类别i的支持向量起始点
+                    int sj = start[j];  //类别j的支持向量起始点
+                    int ci = model.nSV[i];  //类别i的支持向量个数
+                    int cj = model.nSV[j];  //类别j的支持向量个数
 
-                    int k;
-                    double[] coef1 = model.sv_coef[j - 1];
+                    double[] coef1 = model.sv_coef[j - 1];  //决策系数
                     double[] coef2 = model.sv_coef[i];
-                    for (k = 0; k < ci; k++)
-                        sum += coef1[si + k] * kvalue[si + k];
-                    for (k = 0; k < cj; k++)
+                    for (int k = 0; k < ci; k++)
+                        sum += coef1[si + k] * kvalue[si + k];  //决策系数乘以wx
+                    for (int k = 0; k < cj; k++)
                         sum += coef2[sj + k] * kvalue[sj + k];
-                    sum -= model.rho[p];
-                    dec_values[p] = sum;
+                    sum -= model.rho[p];    //减去偏移项b，为什么是减呢？
+                    dec_values[p] = sum;    //在模型i与模型j中得到的决策值
 
-                    if (dec_values[p] > 0)
+                    if (dec_values[p] > 0)  //根据决策值选择哪个模型
                         ++vote[i];
                     else
                         ++vote[j];
                     p++;
                 }
 
+            //巧妙的求最大值索引办法，得到决策值最大的即为该样本预测的类
             int vote_max_idx = 0;
-            for (i = 1; i < nr_class; i++)
+            for (int i = 1; i < nr_class; i++)
                 if (vote[i] > vote[vote_max_idx])
                     vote_max_idx = i;
 
@@ -2400,17 +2417,24 @@ public class svm {
         }
     }
 
+    /**
+     * 用模型对样本进行预测.
+     *
+     * @param model 模型参数
+     * @param x     样本
+     * @return 预测值
+     */
     public static double svm_predict(svm_model model, svm_node[] x) {
-        int nr_class = model.nr_class;
-        double[] dec_values;
+        int nr_class = model.nr_class;  //类别个数
+        double[] dec_values;    //决策值
         if (model.param.svm_type == svm_parameter.ONE_CLASS ||
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR)
             dec_values = new double[1];
+            //回归
         else
             dec_values = new double[nr_class * (nr_class - 1) / 2];
-        double pred_result = svm_predict_values(model, x, dec_values);
-        return pred_result;
+        return svm_predict_values(model, x, dec_values);
     }
 
     public static double svm_predict_probability(svm_model model, svm_node[] x, double[] prob_estimates) {
@@ -2446,8 +2470,10 @@ public class svm {
             return svm_predict(model, x);
     }
 
+    //SVM模型类型枚举，排序规则与SVM_MOD里的顺序一致
     static final String[] svm_type_table = {"c_svc", "nu_svc", "one_class", "epsilon_svr", "nu_svr",};
 
+    //核函数的类型枚举，排序规则与SVM_MOD里的顺序一致
     static final String[] kernel_type_table = {"linear", "polynomial", "rbf", "sigmoid", "precomputed"};
 
     /**
@@ -2549,23 +2575,35 @@ public class svm {
         return Integer.parseInt(s);
     }
 
+    /**
+     * 读取模型文件的文件头.
+     *
+     * @param fp    文件指针
+     * @param model 需要加载的模型
+     * @return 如果参数没有正确读取，则返回错误
+     */
     private static boolean read_model_header(BufferedReader fp, svm_model model) {
+        //svm必要参数
         svm_parameter param = new svm_parameter();
         model.param = param;
-        // parameters for training only won't be assigned, but arrays are assigned as null for safety
+        //仅用于训练时候的参数不会被分配，但是为了安全起见，数组被分配为null
         param.nr_weight = 0;
         param.weight_label = null;
         param.weight = null;
 
         try {
             while (true) {
+                //逐条读行并填入参数
                 String cmd = fp.readLine();
+                //读取空格后面的第一个参数
                 String arg = cmd.substring(cmd.indexOf(' ') + 1);
 
+                //读取SVM的类型
                 if (cmd.startsWith("svm_type")) {
                     int i;
+                    //遍历模型类型，如果找到，就设置
                     for (i = 0; i < svm_type_table.length; i++) {
-                        if (arg.indexOf(svm_type_table[i]) != -1) {
+                        if (arg.contains(svm_type_table[i])) {
                             param.svm_type = i;
                             break;
                         }
@@ -2574,10 +2612,12 @@ public class svm {
                         System.err.print("unknown svm type.\n");
                         return false;
                     }
+                    //读取核函数类型
                 } else if (cmd.startsWith("kernel_type")) {
                     int i;
+                    //遍历核函数类型，如果找到，就设置
                     for (i = 0; i < kernel_type_table.length; i++) {
-                        if (arg.indexOf(kernel_type_table[i]) != -1) {
+                        if (arg.contains(kernel_type_table[i])) {
                             param.kernel_type = i;
                             break;
                         }
@@ -2586,22 +2626,28 @@ public class svm {
                         System.err.print("unknown kernel function.\n");
                         return false;
                     }
+                    //读取各种参数
                 } else if (cmd.startsWith("degree"))
                     param.degree = atoi(arg);
                 else if (cmd.startsWith("gamma"))
                     param.gamma = atof(arg);
                 else if (cmd.startsWith("coef0"))
                     param.coef0 = atof(arg);
+                    //类别的数量
                 else if (cmd.startsWith("nr_class"))
                     model.nr_class = atoi(arg);
+                    //读取支持向量的个数
                 else if (cmd.startsWith("total_sv"))
                     model.l = atoi(arg);
+                    //决策参数偏移项b
                 else if (cmd.startsWith("rho")) {
+                    //一共有nr_class * (model.nr_class - 1) / 2个模型
                     int n = model.nr_class * (model.nr_class - 1) / 2;
                     model.rho = new double[n];
                     StringTokenizer st = new StringTokenizer(arg);
                     for (int i = 0; i < n; i++)
                         model.rho[i] = atof(st.nextToken());
+                    //类别标签
                 } else if (cmd.startsWith("label")) {
                     int n = model.nr_class;
                     model.label = new int[n];
@@ -2620,12 +2666,14 @@ public class svm {
                     StringTokenizer st = new StringTokenizer(arg);
                     for (int i = 0; i < n; i++)
                         model.probB[i] = atof(st.nextToken());
+                    //每个类别的支持向量个数
                 } else if (cmd.startsWith("nr_sv")) {
                     int n = model.nr_class;
                     model.nSV = new int[n];
                     StringTokenizer st = new StringTokenizer(arg);
                     for (int i = 0; i < n; i++)
                         model.nSV[i] = atoi(st.nextToken());
+                    //具体的支持向量可能单独处理
                 } else if (cmd.startsWith("SV")) {
                     break;
                 } else {
@@ -2639,13 +2687,30 @@ public class svm {
         return true;
     }
 
+    /**
+     * 加载模型.
+     *
+     * @param model_file_name 模型文件
+     * @return 加载好的模型
+     */
     public static svm_model svm_load_model(String model_file_name) throws IOException {
         return svm_load_model(new BufferedReader(new FileReader(model_file_name)));
     }
 
     public static svm_model svm_load_model(BufferedReader fp) throws IOException {
-        // read parameters
-
+        /*
+         * 从文件中读取各种参数.
+         *
+         * 主要包括：
+         *  - 模型类型
+         *  - 核函数类型
+         *  - 核函数参数
+         *  - 类别数量
+         *  - 类别标签
+         *  - 支持向量个数
+         *  - 决策参数
+         *  - 支持向量
+         */
         svm_model model = new svm_model();
         model.rho = null;
         model.probA = null;
@@ -2653,25 +2718,29 @@ public class svm {
         model.label = null;
         model.nSV = null;
 
-        // read header
+        //读文件头
         if (!read_model_header(fp, model)) {
             System.err.print("ERROR: failed to read model\n");
             return null;
         }
 
-        // read sv_coef and SV
-
+        //读取支持向量参数
         int m = model.nr_class - 1;
         int l = model.l;
+        //支持向量的系数
         model.sv_coef = new double[m][l];
+        //支持向量
         model.SV = new svm_node[l][];
 
         for (int i = 0; i < l; i++) {
+            //此时文件指针指向第一行支持向量
             String line = fp.readLine();
             StringTokenizer st = new StringTokenizer(line, " \t\n\r\f:");
 
+            //读取决策系数
             for (int k = 0; k < m; k++)
                 model.sv_coef[k][i] = atof(st.nextToken());
+            //读取支持向量
             int n = st.countTokens() / 2;
             model.SV[i] = new svm_node[n];
             for (int j = 0; j < n; j++) {
@@ -2806,16 +2875,20 @@ public class svm {
         return null;
     }
 
-    public static int svm_check_probability_model(svm_model model) {
-        if (((model.param.svm_type == svm_parameter.C_SVC || model.param.svm_type == svm_parameter.NU_SVC) &&
-                model.probA != null && model.probB != null) ||
+    /**
+     * 检查模型是否有概率预测.
+     */
+    public static boolean svm_check_probability_model(svm_model model) {
+        return ((model.param.svm_type == svm_parameter.C_SVC || model.param.svm_type == svm_parameter.NU_SVC) &&
+                model.probA != null && model.probB != null)
+                ||
                 ((model.param.svm_type == svm_parameter.EPSILON_SVR || model.param.svm_type == svm_parameter.NU_SVR) &&
-                        model.probA != null))
-            return 1;
-        else
-            return 0;
+                        model.probA != null);
     }
 
+    /**
+     * 设置打印参数.
+     */
     public static void svm_set_print_string_function(svm_print_interface print_func) {
         if (print_func == null)
             svm_print_string = svm_print_stdout;

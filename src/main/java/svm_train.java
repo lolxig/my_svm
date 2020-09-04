@@ -115,7 +115,7 @@ class svm_train {
         }
     }
 
-    private void run(String argv[]) throws IOException {
+    private void run(String[] argv) throws IOException {
         //解析命令行，将传入的命令行配置存放到SvmParameter param中，并获取input file、model file(如果有)
         //在命令行里没有设置的参数，将赋予一些默认值
         parse_command_line(argv);
@@ -141,8 +141,8 @@ class svm_train {
         }
     }
 
-    public static void main(String argv[]) throws IOException {
-        FileReader in = new FileReader("local_param");
+    public static void main(String[] argv) throws IOException {
+        FileReader in = new FileReader("local_param_train");
         char[] buff = new char[1024];
         int len = in.read(buff);
         //输入命令行参数
@@ -167,7 +167,7 @@ class svm_train {
         return Integer.parseInt(s);
     }
 
-    private void parse_command_line(String argv[]) {
+    private void parse_command_line(String[] argv) {
         int i;
         svm_print_interface print_func = null;    // default printing to stdout
 
