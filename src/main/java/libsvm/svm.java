@@ -13,36 +13,44 @@ import java.util.*;
 // size is the cache size limit in bytes
 //
 class Cache {
-    private final int l;
-    private long size;
+    private final int l; //数据集大小
+    private long size;  //缓存大小
 
+    //单块申请到的内存用class head_t来记录所申请内存，并记录长度。而且通过双向的指针，形成链表，增加寻址的速度
     private static final class head_t {
         head_t prev, next;    // a cicular list
         float[] data;
         int len;        // data[0,len) is cached in this entry
     }
 
-    private final head_t[] head;
-    private final head_t lru_head;
+    private final head_t[] head;    //类似于变量指针，该指针用来记录程序所申请的内存
+    private final head_t lru_head;  //LRU缓存节点
 
+    /**
+     * @param l_    数据集size
+     * @param size_ 缓存大小
+     */
     Cache(int l_, long size_) {
         l = l_;
         size = size_;
-        head = new head_t[l];
-        for (int i = 0; i < l; i++) head[i] = new head_t();
-        size /= 4;
-        size -= l * (16 / 4);    // sizeof(head_t) == 16
+        head = new head_t[l]; //双向链表缓存
+        for (int i = 0; i < l; i++)
+            head[i] = new head_t();
+        size /= 4; //将byte空间转换为float空间
+        size -= l * (16 / 4);    //扣除L个head_t 的内存数目
         size = Math.max(size, 2 * (long) l);  // cache must be large enough for two columns
-        lru_head = new head_t();
-        lru_head.next = lru_head.prev = lru_head;
+        lru_head = new head_t();    //使用LRU缓存技术
+        lru_head.next = lru_head.prev = lru_head; //LRU初始化为空
     }
 
+    //删除某节点
     private void lru_delete(head_t h) {
         // delete from current location
         h.prev.next = h.next;
         h.next.prev = h.prev;
     }
 
+    //插入一个几点，尾插法
     private void lru_insert(head_t h) {
         // insert to last position
         h.next = lru_head;
@@ -57,11 +65,15 @@ class Cache {
     // java: simulate pointer using single-element array
     int get_data(int index, float[][] data, int len) {
         head_t h = head[index];
-        if (h.len > 0) lru_delete(h);
+        //如果head[index]已经被使用，删掉它，释放这个节点的内存
+        if (h.len > 0)
+            lru_delete(h);
+        //计算需要的内存
         int more = len - h.len;
 
+        //如果将head[index]释放之后，仍然需要更多的内存，则进行分配
         if (more > 0) {
-            // free old space
+            //如果剩余内存不够了，接着释放下一个节点，直到得到足够的内存
             while (size < more) {
                 head_t old = lru_head.next;
                 lru_delete(old);
@@ -70,18 +82,21 @@ class Cache {
                 old.len = 0;
             }
 
-            // allocate new space
+            //重新分配内存
             float[] new_data = new float[len];
-            if (h.data != null) System.arraycopy(h.data, 0, new_data, 0, h.len);
+            //将原数据拷贝到新的内存块
+            if (h.data != null)
+                System.arraycopy(h.data, 0, new_data, 0, h.len);
             h.data = new_data;
+            //扣除使用掉的内存
             size -= more;
-            do {
+            {
                 int tmp = h.len;
                 h.len = len;
                 len = tmp;
-            } while (false);
+            }
         }
-
+        //将重新分配后的内存插入链表中
         lru_insert(h);
         data[0] = h.data;
         return len;
@@ -138,6 +153,7 @@ class Cache {
 // the member function get_Q is for getting one column from the Q Matrix
 //
 abstract class QMatrix {
+
     abstract float[] get_Q(int column, int len);
 
     abstract double[] get_QD();
@@ -182,6 +198,13 @@ abstract class Kernel extends QMatrix {
         return ret;
     }
 
+    /**
+     * 求核函数向量.
+     *
+     * @param i 样本i
+     * @param j 样本j
+     * @return 核函数向量
+     */
     double kernel_function(int i, int j) {
         switch (kernel_type) {
             case svm_parameter.LINEAR:
@@ -310,23 +333,23 @@ abstract class Kernel extends QMatrix {
 // solution will be put in \alpha, objective value will be put in obj
 //
 class Solver {
-    int active_size;
-    byte[] y;
-    double[] G;        // gradient of objective function
-    static final byte LOWER_BOUND = 0;
-    static final byte UPPER_BOUND = 1;
-    static final byte FREE = 2;
-    byte[] alpha_status;    // LOWER_BOUND, UPPER_BOUND, FREE
-    double[] alpha;
-    QMatrix Q;
-    double[] QD;
-    double eps;
-    double Cp, Cn;
-    double[] p;
-    int[] active_set;
-    double[] G_bar;        // gradient, if we treat free variables as 0
-    int l;
-    boolean unshrink;    // XXX
+    int active_size;    //计算时实际参加运算的样本数目，经过shrinking处理后，该数目会小于全部样本总数
+    byte[] y;       //样本所属类别，+1/-1
+    double[] G;        //梯度，G(a) = Qa + p
+    static final byte LOWER_BOUND = 0;  //错分点a[i]>=c
+    static final byte UPPER_BOUND = 1;  //内部点a[i]<=0
+    static final byte FREE = 2;         //支持向量0<a[i]<c
+    byte[] alpha_status;    //拉格朗日乘子的状态，分别是[内部点LOWER_BOUND], [错分点UPPER_BOUND], [支持向量FREE]
+    double[] alpha; //拉格朗日乘子
+    QMatrix Q;  //核函数矩阵
+    double[] QD;    //核函数矩阵中的对角线部分
+    double eps;     //误差极限
+    double Cp, Cn;  //正负样本各自的惩罚系数C
+    double[] p;     //目标函数中的系数
+    int[] active_set;   //计算时实际参加运算的样本索引
+    double[] G_bar;     //重建梯度时的中间变量，可以降低重建的计算开销
+    int l;      //样本开销
+    boolean unshrink;    //不进行收缩启发式计算
 
     static final double INF = java.lang.Double.POSITIVE_INFINITY;
 
@@ -336,20 +359,28 @@ class Solver {
 
     void update_alpha_status(int i) {
         if (alpha[i] >= get_C(i))
-            alpha_status[i] = UPPER_BOUND;
+            alpha_status[i] = UPPER_BOUND;  //错分点
         else if (alpha[i] <= 0)
-            alpha_status[i] = LOWER_BOUND;
-        else alpha_status[i] = FREE;
+            alpha_status[i] = LOWER_BOUND;  //内部点
+        else
+            alpha_status[i] = FREE;        //支持向量
     }
 
+    /**
+     * 判断点i是否为错分点.
+     */
     boolean is_upper_bound(int i) {
         return alpha_status[i] == UPPER_BOUND;
     }
-
+    /**
+     * 判断点i是否为内部点.
+     */
     boolean is_lower_bound(int i) {
         return alpha_status[i] == LOWER_BOUND;
     }
-
+    /**
+     * 判断点i是否为支持向量
+     */
     boolean is_free(int i) {
         return alpha_status[i] == FREE;
     }
@@ -443,15 +474,15 @@ class Solver {
      * 使用SMO算法求解对偶问题.
      *
      * @param l         待求数据集大小
-     * @param Q
-     * @param p_
-     * @param y_
-     * @param alpha_
-     * @param Cp
-     * @param Cn
-     * @param eps
-     * @param si
-     * @param shrinking
+     * @param Q         保存了数据集，特征集，输入参数，核向量
+     * @param p_        目标函数的系数
+     * @param y_        样本所属类别，+1/-1
+     * @param alpha_    待计算的alpha值
+     * @param Cp        类别i的惩罚系数
+     * @param Cn        类别j的惩罚系数
+     * @param eps       SVM边界允许误差极限
+     * @param si        待求的偏移项的值
+     * @param shrinking 收缩启发式标志，去除边界值，减少计算量
      */
     void Solve(int l,
                QMatrix Q,
@@ -463,25 +494,25 @@ class Solver {
                SolutionInfo si,
                int shrinking) {
 
-        this.l = l;
-        this.Q = Q;
-        QD = Q.get_QD();
-        p = (double[]) p_.clone();
-        y = (byte[]) y_.clone();
-        alpha = (double[]) alpha_.clone();
-        this.Cp = Cp;
-        this.Cn = Cn;
-        this.eps = eps;
-        this.unshrink = false;
+        this.l = l; //样本大小
+        this.Q = Q; //样本核函数矩阵
+        QD = Q.get_QD();    //核函数矩阵中的对角线部分
+        p = p_.clone(); //目标函数中的系数
+        y = y_.clone(); //样本所属类别，+1/-1
+        alpha = alpha_.clone(); //拉格朗日乘子
+        this.Cp = Cp;   //类别i的惩罚系数
+        this.Cn = Cn;   //类别j的惩罚系数
+        this.eps = eps; //SVM边界允许误差极限
+        this.unshrink = false;  //收缩启发式计算
 
-        // initialize alpha_status
+        //初始化拉格朗日乘子状态
         {
             alpha_status = new byte[l];
             for (int i = 0; i < l; i++)
                 update_alpha_status(i);
         }
 
-        // initialize active set (for shrinking)
+        //初始化计算时实际参加运算的样本索引，刚开始，所有节点都参与计算
         {
             active_set = new int[l];
             for (int i = 0; i < l; i++)
@@ -489,30 +520,28 @@ class Solver {
             active_size = l;
         }
 
-        // initialize gradient
+        //初始化梯度
         {
             G = new double[l];
             G_bar = new double[l];
-            int i;
-            for (i = 0; i < l; i++) {
+            for (int i = 0; i < l; i++) {
                 G[i] = p[i];
                 G_bar[i] = 0;
             }
-            for (i = 0; i < l; i++)
+            for (int i = 0; i < l; i++)
+                //若点i不是内部点
                 if (!is_lower_bound(i)) {
                     float[] Q_i = Q.get_Q(i, l);
                     double alpha_i = alpha[i];
-                    int j;
-                    for (j = 0; j < l; j++)
+                    for (int j = 0; j < l; j++)
                         G[j] += alpha_i * Q_i[j];
                     if (is_upper_bound(i))
-                        for (j = 0; j < l; j++)
+                        for (int j = 0; j < l; j++)
                             G_bar[j] += get_C(i) * Q_i[j];
                 }
         }
 
-        // optimization step
-
+        //优化步骤
         int iter = 0;
         int max_iter = Math.max(10000000, l > Integer.MAX_VALUE / 100 ? Integer.MAX_VALUE : 100 * l);
         int counter = Math.min(l, 1000) + 1;
@@ -684,10 +713,10 @@ class Solver {
         }
 
         // put back the solution
-        {
-            for (int i = 0; i < l; i++)
-                alpha_[active_set[i]] = alpha[i];
-        }
+
+        for (int i = 0; i < l; i++)
+            alpha_[active_set[i]] = alpha[i];
+
 
         si.upper_bound_p = Cp;
         si.upper_bound_n = Cn;
@@ -1092,10 +1121,10 @@ final class Solver_NU extends Solver {
 class SVC_Q extends Kernel {
     private final byte[] y; //特征集
     private final Cache cache;  //缓存数据
-    private final double[] QD;
+    private final double[] QD;  //核函数向量，即gram矩阵
 
     /**
-     * Q矩阵
+     * Q矩阵.
      *
      * @param prob  问题数据集
      * @param param 参数集
@@ -1106,16 +1135,18 @@ class SVC_Q extends Kernel {
         super(prob.l, prob.x, param);
         y = y_.clone(); //克隆特征集
         cache = new Cache(prob.l, (long) (param.cache_size * (1 << 20)));   //申请缓存，默认param.cache_size为100，则默认缓存大小为100MB
+        //构建核函数向量，即K(xi, xj)
         QD = new double[prob.l];
         for (int i = 0; i < prob.l; i++)
             QD[i] = kernel_function(i, i);
     }
 
+    //计算Q = sum yi*y*K(xi, xj)
     float[] get_Q(int i, int len) {
         float[][] data = new float[1][];
-        int start, j;
+        int start;
         if ((start = cache.get_data(i, data, len)) < len) {
-            for (j = start; j < len; j++)
+            for (int j = start; j < len; j++)
                 data[0][j] = (float) (y[i] * y[j] * kernel_function(i, j));
         }
         return data[0];
@@ -1971,14 +2002,14 @@ public class svm {
             for (int i = 0; i < l; i++)
                 x[i] = prob.x[perm[i]];
 
-            //如果有类权重，则计算，如果没有，则设置为默认，即所有类权重一样
+            //计算惩罚系数C
             double[] weighted_C = new double[nr_class];
             for (int i = 0; i < nr_class; i++)
                 weighted_C[i] = param.C;
 
-            //nr_weight记录了从命令行输入的需要设置权重的标签的数量
-            //weight_label记录了从命令行输入的需要设置权重的标签值
-            //weight记录了从命令行输入的需要设置的权重，与weight_label一起使用
+            //nr_weight记录了从命令行输入的需要设置惩罚系数C的标签的数量
+            //weight_label记录了从命令行输入的需要设置惩罚系数C的标签值
+            //weight记录了从命令行输入的需要设置的惩罚系数C，与weight_label一起使用
             for (int i = 0; i < param.nr_weight; i++) {
                 int j;
                 for (j = 0; j < nr_class; j++)
@@ -1991,7 +2022,7 @@ public class svm {
             }
 
             //对于多分类问题，采用1-V-1的方式构造分类器，最后判断采用竞争方式
-            //训练k*(k-1)/2个模型
+            //训练k*(k-1)/2个模型，nonzero[]为true则为支持向量
             boolean[] nonzero = new boolean[l];
             for (int i = 0; i < l; i++)
                 nonzero[i] = false;
@@ -2009,7 +2040,7 @@ public class svm {
             int p = 0;
             for (int i = 0; i < nr_class; i++) {
                 for (int j = i + 1; j < nr_class; j++) {
-                    //建立一个副数据集，按照类标签排序，并填充l，x，y，即样本大小，特征集，标签集
+                    //建立一个副数据集，按照类标签排序，并填充l，x，y，即样本大小，特征集，标签集，排列顺序已经按聚类分开
                     svm_problem sub_prob = new svm_problem();
                     //si为类别i的起始点，sj为类别j的起始点
                     int si = start[i], sj = start[j];

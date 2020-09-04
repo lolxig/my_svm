@@ -30,7 +30,7 @@ public class svm_parameter implements Cloneable, java.io.Serializable {
     public double[] weight;     //权重值、C_SVC
     public double nu;           // for NU_SVC, ONE_CLASS, and NU_SVR
     public double p;            // for EPSILON_SVR
-    public int shrinking;       //收缩启发式标志
+    public int shrinking;       //收缩启发式标志，去除边界值，减少计算量
     public int probability;     // do probability estimates
 
     public Object clone() {
