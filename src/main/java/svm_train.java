@@ -142,8 +142,11 @@ class svm_train {
     }
 
     public static void main(String argv[]) throws IOException {
+        FileReader in = new FileReader("local_param");
+        char[] buff = new char[1024];
+        int len = in.read(buff);
         //输入命令行参数
-        String inputParams = "data/testSet.txt";
+        String inputParams = new String(buff, 0, len);
         //切割命令行参数
         String[] params = inputParams.split(" ");
 

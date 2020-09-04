@@ -1,6 +1,3 @@
-
-
-
 package libsvm;
 
 import java.io.*;
@@ -161,36 +158,40 @@ abstract class QMatrix {
     abstract void swap_index(int i, int j);
 }
 
+/**
+ * Kernel类是用来进行计算Kernel evaluation矩阵的.
+ */
 abstract class Kernel extends QMatrix {
     private svm_node[][] x; //特征集
     private final double[] x_square;
 
     // svm_parameter
-    private final int kernel_type;
-    private final int degree;
-    private final double gamma;
-    private final double coef0;
+    private final int kernel_type;  //核函数类型
+    private final int degree;       //多项式核的d
+    private final double gamma;     //高斯核gamma
+    private final double coef0;     //系数
 
     abstract float[] get_Q(int column, int len);
 
     abstract double[] get_QD();
 
+    //交换两个节点，暂时不知何用
     void swap_index(int i, int j) {
-        do {
+        {
             svm_node[] tmp = x[i];
             x[i] = x[j];
             x[j] = tmp;
-        } while (false);
-        if (x_square != null) do {
+        }
+        if (x_square != null) {
             double tmp = x_square[i];
             x_square[i] = x_square[j];
             x_square[j] = tmp;
-        } while (false);
+        }
     }
 
+    //计算pow(base, times)
     private static double powi(double base, int times) {
         double tmp = base, ret = 1.0;
-
         for (int t = times; t > 0; t /= 2) {
             if (t % 2 == 1) ret *= tmp;
             tmp = tmp * tmp;
@@ -266,8 +267,10 @@ abstract class Kernel extends QMatrix {
         return sum;
     }
 
-    static double k_function(svm_node[] x, svm_node[] y,
-                             svm_parameter param) {
+    /**
+     * 静态方法，对参数传入的任意2个样本求kernel evaluation。主要应用在predict过程中.
+     */
+    static double k_function(svm_node[] x, svm_node[] y, svm_parameter param) {
         switch (param.kernel_type) {
             case svm_parameter.LINEAR:
                 return dot(x, y);
@@ -291,17 +294,14 @@ abstract class Kernel extends QMatrix {
                         ++i;
                     }
                 }
-
                 while (i < xlen) {
                     sum += x[i].value * x[i].value;
                     ++i;
                 }
-
                 while (j < ylen) {
                     sum += y[j].value * y[j].value;
                     ++j;
                 }
-
                 return Math.exp(-param.gamma * sum);
             }
             case svm_parameter.SIGMOID:
@@ -351,12 +351,13 @@ class Solver {
     int l;      //样本开销
     boolean unshrink;    //不进行收缩启发式计算
 
-    static final double INF = java.lang.Double.POSITIVE_INFINITY;
+    static final double INF = java.lang.Double.POSITIVE_INFINITY;   //正无穷大
 
     double get_C(int i) {
         return (y[i] > 0) ? Cp : Cn;
     }
 
+    //更新节点i的alpha状态，区分它是什么点
     void update_alpha_status(int i) {
         if (alpha[i] >= get_C(i))
             alpha_status[i] = UPPER_BOUND;  //错分点
@@ -372,14 +373,16 @@ class Solver {
     boolean is_upper_bound(int i) {
         return alpha_status[i] == UPPER_BOUND;
     }
+
     /**
      * 判断点i是否为内部点.
      */
     boolean is_lower_bound(int i) {
         return alpha_status[i] == LOWER_BOUND;
     }
+
     /**
-     * 判断点i是否为支持向量
+     * 判断点i是否为支持向量.
      */
     boolean is_free(int i) {
         return alpha_status[i] == FREE;
@@ -395,76 +398,92 @@ class Solver {
         double r;    // for Solver_NU
     }
 
+    //将两个节点进行交换
     void swap_index(int i, int j) {
+        //交换特征
         Q.swap_index(i, j);
-        do {
+        //交换标签
+        {
             byte tmp = y[i];
             y[i] = y[j];
             y[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换梯度
+        {
             double tmp = G[i];
             G[i] = G[j];
             G[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换alpha状态
+        {
             byte tmp = alpha_status[i];
             alpha_status[i] = alpha_status[j];
             alpha_status[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换alpha
+        {
             double tmp = alpha[i];
             alpha[i] = alpha[j];
             alpha[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换目标函数系数
+        {
             double tmp = p[i];
             p[i] = p[j];
             p[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换活跃状态
+        {
             int tmp = active_set[i];
             active_set[i] = active_set[j];
             active_set[j] = tmp;
-        } while (false);
-        do {
+        }
+        //交换梯度缓存
+        {
             double tmp = G_bar[i];
             G_bar[i] = G_bar[j];
             G_bar[j] = tmp;
-        } while (false);
+        }
     }
 
+    /**
+     * 重建梯度.
+     */
     void reconstruct_gradient() {
-        // reconstruct inactive elements of G from G_bar and free variables
+        //通过G_bar和自由变量重建非活跃元素的梯度
 
+        //如果全是活跃元素，则不需要重建
         if (active_size == l) return;
 
-        int i, j;
+        //自由变量的个数.
         int nr_free = 0;
 
-        for (j = active_size; j < l; j++)
+        //按系数P重建非活跃元素的梯度
+        for (int j = active_size; j < l; j++)
             G[j] = G_bar[j] + p[j];
 
-        for (j = 0; j < active_size; j++)
+        //统计活跃元素里面有多少自由变量
+        for (int j = 0; j < active_size; j++)
             if (is_free(j))
                 nr_free++;
 
+        //若自由变量个数小于活跃元素个数的1/2，则可能不重建梯度会加快训练
         if (2 * nr_free < active_size)
             svm.info("\nWARNING: using -h 0 may be faster\n");
 
         if (nr_free * l > 2 * active_size * (l - active_size)) {
-            for (i = active_size; i < l; i++) {
+            for (int i = active_size; i < l; i++) {
                 float[] Q_i = Q.get_Q(i, active_size);
-                for (j = 0; j < active_size; j++)
+                for (int j = 0; j < active_size; j++)
                     if (is_free(j))
                         G[i] += alpha[j] * Q_i[j];
             }
         } else {
-            for (i = 0; i < active_size; i++)
+            for (int i = 0; i < active_size; i++)
                 if (is_free(i)) {
                     float[] Q_i = Q.get_Q(i, l);
                     double alpha_i = alpha[i];
-                    for (j = active_size; j < l; j++)
+                    for (int j = active_size; j < l; j++)
                         G[j] += alpha_i * Q_i[j];
                 }
         }
@@ -542,17 +561,18 @@ class Solver {
         }
 
         //优化步骤
-        int iter = 0;
-        int max_iter = Math.max(10000000, l > Integer.MAX_VALUE / 100 ? Integer.MAX_VALUE : 100 * l);
+        int iter = 0;   //已迭代次数
+        int max_iter = Math.max(10_000_000, l > Integer.MAX_VALUE / 100 ? Integer.MAX_VALUE : 100 * l); //最大迭代次数
         int counter = Math.min(l, 1000) + 1;
-        int[] working_set = new int[2];
+        int[] working_set = new int[2]; //工作集
 
         while (iter < max_iter) {
             // show progress and do shrinking
 
             if (--counter == 0) {
                 counter = Math.min(l, 1000);
-                if (shrinking != 0) do_shrinking();
+                if (shrinking != 0)
+                    do_shrinking();
                 svm.info(".");
             }
 
@@ -1159,16 +1179,14 @@ class SVC_Q extends Kernel {
     void swap_index(int i, int j) {
         cache.swap_index(i, j);
         super.swap_index(i, j);
-        do {
+        {
             byte tmp = y[i];
             y[i] = y[j];
             y[j] = tmp;
-        } while (false);
-        do {
-            double tmp = QD[i];
-            QD[i] = QD[j];
-            QD[j] = tmp;
-        } while (false);
+        }
+        double tmp = QD[i];
+        QD[i] = QD[j];
+        QD[j] = tmp;
     }
 }
 
