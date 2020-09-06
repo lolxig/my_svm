@@ -74,18 +74,29 @@ class svm_predict {
             String line = input.readLine();
             if (line == null) break;
 
-            StringTokenizer st = new StringTokenizer(line, " \t\n\r\f:");
-
-            //读取目标标签
-            double target_label = atof(st.nextToken());
-            //读取特征集
-            int m = st.countTokens() / 2;
-            svm_node[] x = new svm_node[m];
-            for (int j = 0; j < m; j++) {
-                x[j] = new svm_node();
-                x[j].index = atoi(st.nextToken());
-                x[j].value = atof(st.nextToken());
+            String[] fields = line.split("\t", -1);
+            //填充标签
+            double target_label = atof(fields[fields.length - 1]);
+            //填充特征向量
+            svm_node[] x = new svm_node[fields.length - 1];
+            for (int i = 0; i < fields.length - 1; i++) {
+                x[i] = new svm_node();
+                x[i].index = i + 1;
+                x[i].value = atof(fields[i]);
             }
+
+//            StringTokenizer st = new StringTokenizer(line, " \t\n\r\f:");
+//
+//            //读取目标标签
+//            double target_label = atof(st.nextToken());
+//            //读取特征集
+//            int m = st.countTokens() / 2;
+//            svm_node[] x = new svm_node[m];
+//            for (int j = 0; j < m; j++) {
+//                x[j] = new svm_node();
+//                x[j].index = atoi(st.nextToken());
+//                x[j].value = atof(st.nextToken());
+//            }
 
             //预测值
             double predict_label;
@@ -192,7 +203,7 @@ class svm_predict {
             svm_model model = svm.svm_load_model(modelFilePath);
             //必须有模型文件
             if (model == null) {
-                System.err.print("can't open model file " + argv[i + 1] + "\n");
+                System.err.print("can't open model file " + modelFilePath + "\n");
                 System.exit(1);
             }
             //检查是否预测概率

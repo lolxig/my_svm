@@ -2,6 +2,7 @@ package libsvm;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 //
 // Kernel Cache
@@ -12,6 +13,7 @@ import java.util.*;
 class Cache {
     private final int l; //数据集大小
     private long size;  //缓存大小
+
 
     //单块申请到的内存用class head_t来记录所申请内存，并记录长度。而且通过双向的指针，形成链表，增加寻址的速度
     private static final class head_t {
@@ -336,8 +338,8 @@ class Solver {
     int active_size;    //计算时实际参加运算的样本数目，经过shrinking处理后，该数目会小于全部样本总数
     byte[] y;       //样本所属类别，+1/-1
     double[] G;        //梯度，G(a) = Qa + p
-    static final byte LOWER_BOUND = 0;  //错分点a[i]>=c
-    static final byte UPPER_BOUND = 1;  //内部点a[i]<=0
+    static final byte LOWER_BOUND = 0;  //内部点a[i]<=0
+    static final byte UPPER_BOUND = 1;  //错分点a[i]>=c
     static final byte FREE = 2;         //支持向量0<a[i]<c
     byte[] alpha_status;    //拉格朗日乘子的状态，分别是[内部点LOWER_BOUND], [错分点UPPER_BOUND], [支持向量FREE]
     double[] alpha; //拉格朗日乘子
@@ -348,8 +350,8 @@ class Solver {
     double[] p;     //目标函数中的系数
     int[] active_set;   //计算时实际参加运算的样本索引
     double[] G_bar;     //重建梯度时的中间变量，可以降低重建的计算开销
-    int l;      //样本开销
-    boolean unshrink;    //不进行收缩启发式计算
+    int l;      //样本大小
+    boolean unshrink;    //没有进行收缩启发式计算的标志
 
     static final double INF = java.lang.Double.POSITIVE_INFINITY;   //正无穷大
 
@@ -393,12 +395,14 @@ class Solver {
     static class SolutionInfo {
         double obj; //obj为SVM文件转换为的二次规划求解得到的最小值
         double rho; //rho为判决函数的偏置项b
-        double upper_bound_p;   //边界
-        double upper_bound_n;   //边界
+        double upper_bound_p;   //不等式约束的剪辑框格
+        double upper_bound_n;
         double r;    // for Solver_NU
     }
 
-    //将两个节点进行交换
+    /**
+     * 完全交换样本 i 和样本 j 的内容，包括申请的内存的地址.
+     */
     void swap_index(int i, int j) {
         //交换特征
         Q.swap_index(i, j);
@@ -467,10 +471,11 @@ class Solver {
             if (is_free(j))
                 nr_free++;
 
-        //若自由变量个数小于活跃元素个数的1/2，则可能不重建梯度会加快训练
+        //若自由变量个数小于活跃元素个数的1/2，则可能不重建梯度会加快训练，因为自由变量一直处于活跃状态
         if (2 * nr_free < active_size)
             svm.info("\nWARNING: using -h 0 may be faster\n");
 
+        //根据自由变量的分布情况重建边界点的梯度
         if (nr_free * l > 2 * active_size * (l - active_size)) {
             for (int i = active_size; i < l; i++) {
                 float[] Q_i = Q.get_Q(i, active_size);
@@ -508,7 +513,8 @@ class Solver {
                double[] p_,
                byte[] y_,
                double[] alpha_,
-               double Cp, double Cn,
+               double Cp,
+               double Cn,
                double eps,
                SolutionInfo si,
                int shrinking) {
@@ -522,7 +528,7 @@ class Solver {
         this.Cp = Cp;   //类别i的惩罚系数
         this.Cn = Cn;   //类别j的惩罚系数
         this.eps = eps; //SVM边界允许误差极限
-        this.unshrink = false;  //收缩启发式计算
+        this.unshrink = false;  //是否已经进行过收缩
 
         //初始化拉格朗日乘子状态
         {
@@ -539,12 +545,12 @@ class Solver {
             active_size = l;
         }
 
-        //初始化梯度
+        //初始化梯度，梯度 G = Q * alpha + p ，其中p为全-1的向量
         {
             G = new double[l];
             G_bar = new double[l];
             for (int i = 0; i < l; i++) {
-                G[i] = p[i];
+                G[i] = p[i];    //G = p
                 G_bar[i] = 0;
             }
             for (int i = 0; i < l; i++)
@@ -553,7 +559,7 @@ class Solver {
                     float[] Q_i = Q.get_Q(i, l);
                     double alpha_i = alpha[i];
                     for (int j = 0; j < l; j++)
-                        G[j] += alpha_i * Q_i[j];
+                        G[j] += alpha_i * Q_i[j];   //G = Q * alpha + p
                     if (is_upper_bound(i))
                         for (int j = 0; j < l; j++)
                             G_bar[j] += get_C(i) * Q_i[j];
@@ -563,12 +569,12 @@ class Solver {
         //优化步骤
         int iter = 0;   //已迭代次数
         int max_iter = Math.max(10_000_000, l > Integer.MAX_VALUE / 100 ? Integer.MAX_VALUE : 100 * l); //最大迭代次数
-        int counter = Math.min(l, 1000) + 1;
-        int[] working_set = new int[2]; //工作集
+        int counter = Math.min(l, 1000) + 1;    //收缩启发式计算阈值
+        int[] working_set = new int[2]; //工作集，大小为2，就选择两个变量，最大违反对
 
         while (iter < max_iter) {
-            // show progress and do shrinking
 
+            //每执行counter次，就进行一次收缩启发式计算
             if (--counter == 0) {
                 counter = Math.min(l, 1000);
                 if (shrinking != 0)
@@ -576,43 +582,49 @@ class Solver {
                 svm.info(".");
             }
 
+            //等于1表示当前参数已经达到最优解，等于0表示选择到了最大违反对
             if (select_working_set(working_set) != 0) {
-                // reconstruct the whole gradient
+                //重建整个梯度
                 reconstruct_gradient();
-                // reset active set size and check
+                //检查整个样本集
                 active_size = l;
                 svm.info("*");
+                //重建梯度之后对整个样本集进行检查，如果仍然得到最优解，则表示是真的最优解
                 if (select_working_set(working_set) != 0)
                     break;
                 else
                     counter = 1;    // do shrinking next iteration
             }
 
+            //获取第一个和第二个向量
             int i = working_set[0];
             int j = working_set[1];
 
             ++iter;
 
-            // update alpha[i] and alpha[j], handle bounds carefully
-
+            //根据得到的工作集，来求解alpha[i]和alpha[j]，边界情况谨慎处理
             float[] Q_i = Q.get_Q(i, active_size);
             float[] Q_j = Q.get_Q(j, active_size);
 
+            //求得i和j的惩罚系数
             double C_i = get_C(i);
             double C_j = get_C(j);
 
+            //得到old的拉格朗日乘子
             double old_alpha_i = alpha[i];
             double old_alpha_j = alpha[j];
 
+            //分两种情况，一种是y[i] != y[j]，沿着斜率正方向求解；另一种是y[i] = y[j]，沿着斜率负方向求解
             if (y[i] != y[j]) {
-                double quad_coef = QD[i] + QD[j] + 2 * Q_i[j];
-                if (quad_coef <= 0)
+                double quad_coef = QD[i] + QD[j] + 2 * Q_i[j];  //求得K[ii] + K[jj] - 2K[ij]
+                if (quad_coef <= 0) //如果小于0，取一个很小很小的值
                     quad_coef = 1e-12;
-                double delta = (-G[i] - G[j]) / quad_coef;
+                double delta = (-G[i] - G[j]) / quad_coef;  //求得梯度增量
                 double diff = alpha[i] - alpha[j];
-                alpha[i] += delta;
+                alpha[i] += delta;  //根据梯度增量来更新两个值
                 alpha[j] += delta;
 
+                //如果在边界上，则沿着边界进行剪辑
                 if (diff > 0) {
                     if (alpha[j] < 0) {
                         alpha[j] = 0;
@@ -668,8 +680,7 @@ class Solver {
                 }
             }
 
-            // update G
-
+            //根据更新后的两个值来更新活跃样本的梯度
             double delta_alpha_i = alpha[i] - old_alpha_i;
             double delta_alpha_j = alpha[j] - old_alpha_j;
 
@@ -677,40 +688,39 @@ class Solver {
                 G[k] += Q_i[k] * delta_alpha_i + Q_j[k] * delta_alpha_j;
             }
 
-            // update alpha_status and G_bar
-
+            //更新节点的状态和G_bar
             {
-                boolean ui = is_upper_bound(i);
+                boolean ui = is_upper_bound(i); //判断节点之前是否为错分点
                 boolean uj = is_upper_bound(j);
-                update_alpha_status(i);
+                update_alpha_status(i); //更新节点的状态
                 update_alpha_status(j);
-                int k;
-                if (ui != is_upper_bound(i)) {
+
+                if (ui != is_upper_bound(i)) {  //如果错分点情况发生了变化
                     Q_i = Q.get_Q(i, l);
-                    if (ui)
-                        for (k = 0; k < l; k++)
+                    if (ui)                     //如果是纠正了错分点，则梯度正确下降
+                        for (int k = 0; k < l; k++)
                             G_bar[k] -= C_i * Q_i[k];
-                    else
-                        for (k = 0; k < l; k++)
+                    else                        //如果是分到了错分点，则梯度反而应该上升
+                        for (int k = 0; k < l; k++)
                             G_bar[k] += C_i * Q_i[k];
                 }
 
                 if (uj != is_upper_bound(j)) {
                     Q_j = Q.get_Q(j, l);
                     if (uj)
-                        for (k = 0; k < l; k++)
+                        for (int k = 0; k < l; k++)
                             G_bar[k] -= C_j * Q_j[k];
                     else
-                        for (k = 0; k < l; k++)
+                        for (int k = 0; k < l; k++)
                             G_bar[k] += C_j * Q_j[k];
                 }
             }
 
-        }
+        } //迭代完成
 
         if (iter >= max_iter) {
             if (active_size < l) {
-                // reconstruct the whole gradient to calculate objective value
+                //重建梯度来计算目标值
                 reconstruct_gradient();
                 active_size = l;
                 svm.info("*");
@@ -718,33 +728,34 @@ class Solver {
             System.err.print("\nWARNING: reaching max number of iterations\n");
         }
 
-        // calculate rho
-
+        //计算偏移项b
         si.rho = calculate_rho();
 
-        // calculate objective value
+        //计算目标值
         {
             double v = 0;
-            int i;
-            for (i = 0; i < l; i++)
+            for (int i = 0; i < l; i++)
                 v += alpha[i] * (G[i] + p[i]);
 
             si.obj = v / 2;
         }
 
-        // put back the solution
-
+        //更新得到的计算完毕的alpha值
         for (int i = 0; i < l; i++)
             alpha_[active_set[i]] = alpha[i];
 
-
+        //更新边界
         si.upper_bound_p = Cp;
         si.upper_bound_n = Cn;
 
         svm.info("\noptimization finished, #iter = " + iter + "\n");
     }
 
-    // return 1 if already optimal, return 0 otherwise
+    /**
+     * 通过看停止条件来确定是否当前变量已经处在最优解上了，如果是则返回1，如果不是对working_set数组赋值并返回0.
+     * 如果m(a) <= M(a)，则表示得到了最优解，返回1.
+     * 为了加快运算，该最优解的范围是在活跃样本集上.
+     */
     int select_working_set(int[] working_set) {
         // return i,j such that
         // i: maximizes -y_i * grad(f)_i, i in I_up(\alpha)
@@ -752,46 +763,53 @@ class Solver {
         //    (if quadratic coefficeint <= 0, replace it with tau)
         //    -y_j*grad(f)_j < -y_i*grad(f)_i, j in I_low(\alpha)
 
-        double Gmax = -INF;
-        double Gmax2 = -INF;
-        int Gmax_idx = -1;
-        int Gmin_idx = -1;
+        double Gmax = -INF;     //i的最大梯度
+        double Gmax2 = -INF;    //j的最大梯度
+        int Gmax_idx = -1;      //i的索引
+        int Gmin_idx = -1;      //j的索引
         double obj_diff_min = INF;
 
+        //确定第一个变量，I_up里面的最大值
         for (int t = 0; t < active_size; t++)
-            if (y[t] == +1) {
-                if (!is_upper_bound(t))
-                    if (-G[t] >= Gmax) {
+            if (y[t] == +1) {   // y = 1
+                if (!is_upper_bound(t)) // alpha[t] < C
+                    if (-G[t] >= Gmax) {    //取得最大梯度的值和最大梯度的索引
                         Gmax = -G[t];
                         Gmax_idx = t;
                     }
-            } else {
-                if (!is_lower_bound(t))
-                    if (G[t] >= Gmax) {
+            } else {            // y = -1
+                if (!is_lower_bound(t)) // alpha[t] > 0
+                    if (G[t] >= Gmax) {     //取得最大梯度的值和最大梯度的索引
                         Gmax = G[t];
                         Gmax_idx = t;
                     }
             }
 
+        //如果取到了i，则获取i在活跃样本下的Q矩阵
         int i = Gmax_idx;
         float[] Q_i = null;
         if (i != -1) // null Q_i not accessed: Gmax=-INF if i=-1
             Q_i = Q.get_Q(i, active_size);
 
+        //在活跃样本范围内获取第二个优化参数
         for (int j = 0; j < active_size; j++) {
+            //两种解法同时进行
             if (y[j] == +1) {
-                if (!is_lower_bound(j)) {
-                    double grad_diff = Gmax + G[j];
-                    if (G[j] >= Gmax2)
+                if (!is_lower_bound(j)) {   //y[i] = +1 且alpha[j] > 0
+                    if (G[j] >= Gmax2)  //先获取最大梯度
                         Gmax2 = G[j];
+
+                    //如果满足 -y_t * G[t] < -y_i * G[i] && I_low
+                    double grad_diff = Gmax + G[j]; //b[ij] = -y[i] * G[i] + y[j] * G[j]
                     if (grad_diff > 0) {
                         double obj_diff;
-                        double quad_coef = QD[i] + QD[j] - 2.0 * y[i] * Q_i[j];
+                        double quad_coef = QD[i] + QD[j] - 2.0 * y[i] * Q_i[j]; //a[ij] = K[ii] + K[jj] - 2K[ij]
                         if (quad_coef > 0)
                             obj_diff = -(grad_diff * grad_diff) / quad_coef;
                         else
                             obj_diff = -(grad_diff * grad_diff) / 1e-12;
 
+                        //获取最小的j值
                         if (obj_diff <= obj_diff_min) {
                             Gmin_idx = j;
                             obj_diff_min = obj_diff;
@@ -799,10 +817,11 @@ class Solver {
                     }
                 }
             } else {
-                if (!is_upper_bound(j)) {
-                    double grad_diff = Gmax - G[j];
+                if (!is_upper_bound(j)) {   //y[i] = -1 且alpha[j] < C
                     if (-G[j] >= Gmax2)
                         Gmax2 = -G[j];
+
+                    double grad_diff = Gmax - G[j];
                     if (grad_diff > 0) {
                         double obj_diff;
                         double quad_coef = QD[i] + QD[j] + 2.0 * y[i] * Q_i[j];
@@ -820,36 +839,45 @@ class Solver {
             }
         }
 
+        //两种停止条件，①最优化参数已经达到极限误差内；②极限条件下，没能取到第二个参数
         if (Gmax + Gmax2 < eps || Gmin_idx == -1)
             return 1;
 
+        //返回得到的工作集
         working_set[0] = Gmax_idx;
         working_set[1] = Gmin_idx;
         return 0;
     }
 
+    /**
+     * 判断是否要进行收缩.
+     */
     private boolean be_shrunk(int i, double Gmax1, double Gmax2) {
-        if (is_upper_bound(i)) {
+        if (is_upper_bound(i)) {    //如果是错分点
             if (y[i] == +1)
-                return (-G[i] > Gmax1);
+                return (-G[i] > Gmax1); //错分点的梯度是负数
             else
                 return (-G[i] > Gmax2);
-        } else if (is_lower_bound(i)) {
+        } else if (is_lower_bound(i)) { //如果是自由点
             if (y[i] == +1)
                 return (G[i] > Gmax2);
             else
                 return (G[i] > Gmax1);
         } else
-            return (false);
+            return false;
     }
 
+    /**
+     * 进行收缩启发式计算.
+     * 优化过程中，有一些值可能已经成为边界值，之后便不再变化.
+     * 为了节省训练时间，使用shrinking方法去除这些个边界值，从而可以进一步解决一个更小的子优化问题.
+     */
     void do_shrinking() {
-        int i;
         double Gmax1 = -INF;        // max { -y_i * grad(f)_i | i in I_up(\alpha) }
         double Gmax2 = -INF;        // max { y_i * grad(f)_i | i in I_low(\alpha) }
 
-        // find maximal violating pair first
-        for (i = 0; i < active_size; i++) {
+        //先找到最大为反对
+        for (int i = 0; i < active_size; i++) {
             if (y[i] == +1) {
                 if (!is_upper_bound(i)) {
                     if (-G[i] >= Gmax1)
@@ -871,26 +899,34 @@ class Solver {
             }
         }
 
-        if (unshrink == false && Gmax1 + Gmax2 <= eps * 10) {
+        //如果没有进行收缩启发式计算且没有达到最优解
+        if (!unshrink && Gmax1 + Gmax2 <= eps * 10) {
             unshrink = true;
+            //重建梯度
             reconstruct_gradient();
             active_size = l;
             svm.info("*");
         }
 
-        for (i = 0; i < active_size; i++)
-            if (be_shrunk(i, Gmax1, Gmax2)) {
+        for (int i = 0; i < active_size; i++)
+            if (be_shrunk(i, Gmax1, Gmax2)) {   //如果i要进行收缩
                 active_size--;
+                //遍历从i到最后一个非边界值
                 while (active_size > i) {
+                    //如果最后一个非边界值不需要进行收缩，则与节点i进行互换
                     if (!be_shrunk(active_size, Gmax1, Gmax2)) {
                         swap_index(i, active_size);
                         break;
                     }
+                    //如果需要收缩，则将那个节点给收缩掉
                     active_size--;
                 }
             }
     }
 
+    /**
+     * 得到新的alpha之后，计算偏移项b.
+     */
     double calculate_rho() {
         double r;
         int nr_free = 0;
@@ -898,17 +934,17 @@ class Solver {
         for (int i = 0; i < active_size; i++) {
             double yG = y[i] * G[i];
 
-            if (is_upper_bound(i)) {
+            if (is_upper_bound(i)) {    //错分点
                 if (y[i] < 0)
                     ub = Math.min(ub, yG);
                 else
                     lb = Math.max(lb, yG);
-            } else if (is_lower_bound(i)) {
+            } else if (is_lower_bound(i)) { //内部点
                 if (y[i] > 0)
                     ub = Math.min(ub, yG);
                 else
                     lb = Math.max(lb, yG);
-            } else {
+            } else {                //自由点（SV）
                 ++nr_free;
                 sum_free += yG;
             }
@@ -921,7 +957,6 @@ class Solver {
 
         return r;
     }
-
 }
 
 //
@@ -1161,7 +1196,7 @@ class SVC_Q extends Kernel {
             QD[i] = kernel_function(i, i);
     }
 
-    //计算Q = sum yi*y*K(xi, xj)
+    //在活跃样本上计算Q = sum yi*y*K(xi, xj)，len
     float[] get_Q(int i, int len) {
         float[][] data = new float[1][];
         int start;
@@ -1190,14 +1225,18 @@ class SVC_Q extends Kernel {
     }
 }
 
+/**
+ * 一分类模型.
+ */
 class ONE_CLASS_Q extends Kernel {
-    private final Cache cache;
-    private final double[] QD;
+
+    private final Cache cache;  //数据缓存
+    private final double[] QD;  //对角核向量
 
     ONE_CLASS_Q(svm_problem prob, svm_parameter param) {
         super(prob.l, prob.x, param);
-        cache = new Cache(prob.l, (long) (param.cache_size * (1 << 20)));
-        QD = new double[prob.l];
+        cache = new Cache(prob.l, (long) (param.cache_size * (1 << 20)));   //申请缓存
+        QD = new double[prob.l];    //
         for (int i = 0; i < prob.l; i++)
             QD[i] = kernel_function(i, i);
     }
@@ -1219,11 +1258,9 @@ class ONE_CLASS_Q extends Kernel {
     void swap_index(int i, int j) {
         cache.swap_index(i, j);
         super.swap_index(i, j);
-        do {
-            double tmp = QD[i];
-            QD[i] = QD[j];
-            QD[j] = tmp;
-        } while (false);
+        double tmp = QD[i];
+        QD[i] = QD[j];
+        QD[j] = tmp;
     }
 }
 
@@ -1256,21 +1293,19 @@ class SVR_Q extends Kernel {
     }
 
     void swap_index(int i, int j) {
-        do {
+        {
             byte tmp = sign[i];
             sign[i] = sign[j];
             sign[j] = tmp;
-        } while (false);
-        do {
+        }
+        {
             int tmp = index[i];
             index[i] = index[j];
             index[j] = tmp;
-        } while (false);
-        do {
-            double tmp = QD[i];
-            QD[i] = QD[j];
-            QD[j] = tmp;
-        } while (false);
+        }
+        double tmp = QD[i];
+        QD[i] = QD[j];
+        QD[j] = tmp;
     }
 
     float[] get_Q(int i, int len) {
@@ -1282,7 +1317,7 @@ class SVR_Q extends Kernel {
         }
 
         // reorder and copy
-        float buf[] = buffer[next_buffer];
+        float[] buf = buffer[next_buffer];
         next_buffer = 1 - next_buffer;
         byte si = sign[i];
         for (j = 0; j < len; j++)
@@ -1319,8 +1354,8 @@ public class svm {
      * @param param 输入参数
      * @param alpha 需要输出的alpha值
      * @param si    需要输出的偏置项等参数
-     * @param Cp    类别i的权重
-     * @param Cn    类别j的权重
+     * @param Cp    类别i的惩罚值C
+     * @param Cn    类别j的惩罚值C
      */
     private static void solve_c_svc(svm_problem prob,
                                     svm_parameter param,
@@ -1408,30 +1443,38 @@ public class svm {
         si.upper_bound_n = 1 / r;
     }
 
-    private static void solve_one_class(svm_problem prob, svm_parameter param,
-                                        double[] alpha, Solver.SolutionInfo si) {
-        int l = prob.l;
-        double[] zeros = new double[l];
-        byte[] ones = new byte[l];
-        int i;
+    /**
+     * 训练一分类模型.
+     *
+     * @param prob  待解决的问题
+     * @param param 模型输入参数
+     * @param alpha 待求参数
+     * @param si    待求参数
+     */
+    private static void solve_one_class(svm_problem prob,
+                                        svm_parameter param,
+                                        double[] alpha,
+                                        Solver.SolutionInfo si) {
+        int l = prob.l; //样本个数
+        double[] zeros = new double[l]; //0向量
+        byte[] ones = new byte[l];  //1向量
 
         int n = (int) (param.nu * prob.l);    // # of alpha's at upper bound
 
-        for (i = 0; i < n; i++)
+        for (int i = 0; i < n; i++)
             alpha[i] = 1;
-        if (n < prob.l)
+        if (n < prob.l) //正例系数
             alpha[n] = param.nu * prob.l - n;
-        for (i = n + 1; i < l; i++)
+        for (int i = n + 1; i < l; i++)
             alpha[i] = 0;
 
-        for (i = 0; i < l; i++) {
+        for (int i = 0; i < l; i++) {
             zeros[i] = 0;
             ones[i] = 1;
         }
 
         Solver s = new Solver();
-        s.Solve(l, new ONE_CLASS_Q(prob, param), zeros, ones,
-                alpha, 1.0, 1.0, param.eps, si, param.shrinking);
+        s.Solve(l, new ONE_CLASS_Q(prob, param), zeros, ones, alpha, 1.0, 1.0, param.eps, si, param.shrinking);
     }
 
     private static void solve_epsilon_svr(svm_problem prob, svm_parameter param,
@@ -1506,11 +1549,25 @@ public class svm {
     /**
      * 训练单个决策参数.
      *
-     * @param prob  排列好的数据集
-     * @param param 模型参数
-     * @param Cp    第一个类的权重
-     * @param Cn    第二个类的权重
+     * @param prob        排列好的数据集
+     * @param param       模型参数
+     * @param Cp          第一个类的权重
+     * @param Cn          第二个类的权重
+     * @param latch       多线程执行参数
      * @return 训练好的决策参数
+     */
+    static decision_function svm_train_one(svm_problem prob,
+                                           svm_parameter param,
+                                           double Cp,
+                                           double Cn,
+                                           CountDownLatch latch) {
+        decision_function f = svm_train_one(prob, param, Cp, Cn);
+        latch.countDown();
+        return f;
+    }
+
+    /**
+     * 训练单个决策参数.
      */
     static decision_function svm_train_one(svm_problem prob,
                                            svm_parameter param,
@@ -1551,6 +1608,7 @@ public class svm {
             if (Math.abs(alpha[i]) > 0) {
                 ++nSV;
                 if (prob.y[i] > 0) {
+                    //如果点超出边界，则将其剪辑到边界上
                     if (Math.abs(alpha[i]) >= si.upper_bound_p)
                         ++nBSV;
                 } else {
@@ -1938,9 +1996,57 @@ public class svm {
         count_ret[0] = count;
     }
 
+    static class ExecuteTrain implements Runnable {
+
+        private final decision_function[] f;
+        private final int p;
+        private final svm_problem sub_prob;
+        private final svm_parameter param;
+        private final double Cp;
+        private final double Cn;
+        private final CountDownLatch latch;
+        private final int ci;
+        private final int si;
+        private final int cj;
+        private final int sj;
+        private final boolean[] nonzero;
+
+        public ExecuteTrain(decision_function[] f, int p, svm_problem sub_prob, svm_parameter param,
+                            double cp, double cn, CountDownLatch latch, int ci, int si, int cj, int sj,
+                            boolean[] nonzero) {
+            this.f = f;
+            this.p = p;
+            this.sub_prob = sub_prob;
+            this.param = param;
+            Cp = cp;
+            Cn = cn;
+            this.latch = latch;
+            this.ci = ci;
+            this.si = si;
+            this.cj = cj;
+            this.sj = sj;
+            this.nonzero = nonzero;
+        }
+
+        @Override
+        public void run() {
+            System.out.printf("模型训练线程[%d]开始执行.\n", p);
+            long start = System.currentTimeMillis();
+            f[p] = svm_train_one(sub_prob, param, Cp, Cn, latch);
+            for (int k = 0; k < ci; k++)
+                if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
+                    nonzero[si + k] = true;
+            for (int k = 0; k < cj; k++)
+                if (!nonzero[sj + k] && Math.abs(f[p].alpha[ci + k]) > 0)
+                    nonzero[sj + k] = true;
+
+            System.out.printf("模型训练线程[%d]-----执行完成，耗时：%dms\n", p, System.currentTimeMillis() - start);
+        }
+
+    }
 
     /**
-     * 训练svm模型
+     * 训练svm模型.
      *
      * @param prob  输入的数据集与特征集
      * @param param 输入的模型参数
@@ -1964,6 +2070,7 @@ public class svm {
             model.probB = null;
             model.sv_coef = new double[1][];
 
+            //回归概率预测
             if (param.probability == 1 &&
                     (param.svm_type == svm_parameter.EPSILON_SVR ||
                             param.svm_type == svm_parameter.NU_SVR)) {
@@ -1971,21 +2078,23 @@ public class svm {
                 model.probA[0] = svm_svr_probability(prob, param);
             }
 
+            //模型训练
             decision_function f = svm_train_one(prob, param, 0, 0);
             model.rho = new double[1];
             model.rho[0] = f.rho;
 
-            int nSV = 0;
-            int i;
-            for (i = 0; i < prob.l; i++)
-                if (Math.abs(f.alpha[i]) > 0) ++nSV;
+            int nSV = 0;    //支持向量个数
+            for (int i = 0; i < prob.l; i++)
+                if (Math.abs(f.alpha[i]) > 0)
+                    ++nSV;
+
             model.l = nSV;
             model.SV = new svm_node[nSV][];
             model.sv_coef[0] = new double[nSV];
             model.sv_indices = new int[nSV];
             int j = 0;
-            for (i = 0; i < prob.l; i++)
-                if (Math.abs(f.alpha[i]) > 0) {
+            for (int i = 0; i < prob.l; i++)
+                if (Math.abs(f.alpha[i]) > 0) { //支持向量
                     model.SV[j] = prob.x[i];
                     model.sv_coef[0][j] = f.alpha[i];
                     model.sv_indices[j] = i + 1;
@@ -2051,6 +2160,8 @@ public class svm {
             }
 
             //训练k*(k-1)/2个模型
+            ExecutorService service = Executors.newFixedThreadPool(nr_class * (nr_class - 1) / 2);
+            CountDownLatch latch = new CountDownLatch(nr_class * (nr_class - 1) / 2);
             int p = 0;
             for (int i = 0; i < nr_class; i++) {
                 for (int j = i + 1; j < nr_class; j++) {
@@ -2076,27 +2187,37 @@ public class svm {
                         sub_prob.y[ci + k] = -1;
                     }
 
-                    //做概率估计，暂时不知道是干啥的
-                    if (param.probability == 1) {
-                        double[] probAB = new double[2];
-                        svm_binary_svc_probability(sub_prob, param, weighted_C[i], weighted_C[j], probAB);
-                        probA[p] = probAB[0];
-                        probB[p] = probAB[1];
-                    }
+//                    //做概率估计，暂时不知道是干啥的
+//                    if (param.probability == 1) {
+//                        double[] probAB = new double[2];
+//                        svm_binary_svc_probability(sub_prob, param, weighted_C[i], weighted_C[j], probAB);
+//                        probA[p] = probAB[0];
+//                        probB[p] = probAB[1];
+//                    }
 
-                    //针对类别i和类别j训练单个决策参数，主要是训练alpha和b
-                    f[p] = svm_train_one(sub_prob, param, weighted_C[i], weighted_C[j]);
+//                    //针对类别i和类别j训练单个决策参数，主要是训练alpha和b
+//                    f[p] = svm_train_one(sub_prob, param, weighted_C[i], weighted_C[j], latch);
+//
+//                    //修改nonzero数组，将alpha大于0的对应位置改为true，nonzero为true的表示是支持向量
+//                    for (int k = 0; k < ci; k++)
+//                        if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
+//                            nonzero[si + k] = true;
+//                    for (int k = 0; k < cj; k++)
+//                        if (!nonzero[sj + k] && Math.abs(f[p].alpha[ci + k]) > 0)
+//                            nonzero[sj + k] = true;
 
-                    //修改nonzero数组，将alpha大于0的对应位置改为true，nonzero为true的表示是支持向量
-                    for (int k = 0; k < ci; k++)
-                        if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
-                            nonzero[si + k] = true;
-                    for (int k = 0; k < cj; k++)
-                        if (!nonzero[sj + k] && Math.abs(f[p].alpha[ci + k]) > 0)
-                            nonzero[sj + k] = true;
+                    new Thread(new ExecuteTrain(f, p, sub_prob, param, weighted_C[i], weighted_C[j], latch, ci, si, cj, sj, nonzero)).start();
                     ++p;
                 }
             }
+
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                System.err.println("多线程等待执行出错，请检查！");
+                System.exit(1);
+            }
+            System.out.println("\n所有模型训练完毕，开始保存模型.\n");
 
             //填充svm_model对象model
 
@@ -2361,7 +2482,7 @@ public class svm {
                 return (sum > 0) ? 1 : -1;
             else
                 return sum;
-        //分类预测
+            //分类预测
         } else {
             int nr_class = model.nr_class;  //类别个数
             int l = model.l;    //支持向量个数
