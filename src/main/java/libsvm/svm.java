@@ -1549,11 +1549,11 @@ public class svm {
     /**
      * 训练单个决策参数.
      *
-     * @param prob        排列好的数据集
-     * @param param       模型参数
-     * @param Cp          第一个类的权重
-     * @param Cn          第二个类的权重
-     * @param latch       多线程执行参数
+     * @param prob  排列好的数据集
+     * @param param 模型参数
+     * @param Cp    第一个类的权重
+     * @param Cn    第二个类的权重
+     * @param latch 多线程执行参数
      * @return 训练好的决策参数
      */
     static decision_function svm_train_one(svm_problem prob,
@@ -2071,12 +2071,12 @@ public class svm {
             model.sv_coef = new double[1][];
 
             //回归概率预测
-            if (param.probability == 1 &&
-                    (param.svm_type == svm_parameter.EPSILON_SVR ||
-                            param.svm_type == svm_parameter.NU_SVR)) {
-                model.probA = new double[1];
-                model.probA[0] = svm_svr_probability(prob, param);
-            }
+//            if (param.probability == 1 &&
+//                    (param.svm_type == svm_parameter.EPSILON_SVR ||
+//                            param.svm_type == svm_parameter.NU_SVR)) {
+//                model.probA = new double[1];
+//                model.probA[0] = svm_svr_probability(prob, param);
+//            }
 
             //模型训练
             decision_function f = svm_train_one(prob, param, 0, 0);
@@ -2153,14 +2153,14 @@ public class svm {
             decision_function[] f = new decision_function[nr_class * (nr_class - 1) / 2];
 
             //做概率估计，暂时不知道是干啥的
-            double[] probA = null, probB = null;
-            if (param.probability == 1) {
-                probA = new double[nr_class * (nr_class - 1) / 2];
-                probB = new double[nr_class * (nr_class - 1) / 2];
-            }
+//            double[] probA = null, probB = null;
+//            if (param.probability == 1) {
+//                probA = new double[nr_class * (nr_class - 1) / 2];
+//                probB = new double[nr_class * (nr_class - 1) / 2];
+//            }
 
             //训练k*(k-1)/2个模型
-            ExecutorService service = Executors.newFixedThreadPool(nr_class * (nr_class - 1) / 2);
+//            ExecutorService service = Executors.newFixedThreadPool(nr_class * (nr_class - 1) / 2);
             CountDownLatch latch = new CountDownLatch(nr_class * (nr_class - 1) / 2);
             int p = 0;
             for (int i = 0; i < nr_class; i++) {
@@ -2187,7 +2187,7 @@ public class svm {
                         sub_prob.y[ci + k] = -1;
                     }
 
-//                    //做概率估计，暂时不知道是干啥的
+                    //做概率估计，暂时不知道是干啥的
 //                    if (param.probability == 1) {
 //                        double[] probAB = new double[2];
 //                        svm_binary_svc_probability(sub_prob, param, weighted_C[i], weighted_C[j], probAB);
@@ -2206,6 +2206,7 @@ public class svm {
 //                        if (!nonzero[sj + k] && Math.abs(f[p].alpha[ci + k]) > 0)
 //                            nonzero[sj + k] = true;
 
+                    //根据选择参数，将子集传入线程，开始训练，并填入训练参数
                     new Thread(new ExecuteTrain(f, p, sub_prob, param, weighted_C[i], weighted_C[j], latch, ci, si, cj, sj, nonzero)).start();
                     ++p;
                 }
@@ -2233,17 +2234,17 @@ public class svm {
             for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++)
                 model.rho[i] = f[i].rho;
 
-            if (param.probability == 1) {
-                model.probA = new double[nr_class * (nr_class - 1) / 2];
-                model.probB = new double[nr_class * (nr_class - 1) / 2];
-                for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++) {
-                    model.probA[i] = probA[i];
-                    model.probB[i] = probB[i];
-                }
-            } else {
-                model.probA = null;
-                model.probB = null;
-            }
+//            if (param.probability == 1) {
+//                model.probA = new double[nr_class * (nr_class - 1) / 2];
+//                model.probB = new double[nr_class * (nr_class - 1) / 2];
+//                for (int i = 0; i < nr_class * (nr_class - 1) / 2; i++) {
+//                    model.probA[i] = probA[i];
+//                    model.probB[i] = probB[i];
+//                }
+//            } else {
+//                model.probA = null;
+//                model.probB = null;
+//            }
 
             //支持向量总个数(对于两类来说，因为只有一个分类模型Total nSV = nSV，但是对于多类，这个是各个分类模型的nSV之和)
             int total_sv = 0;
@@ -2310,9 +2311,15 @@ public class svm {
         return model;
     }
 
-    // Stratified cross validation
+    /**
+     * 分层交叉验证.
+     *
+     * @param prob    问题，包含数据集之类的数据
+     * @param param   训练参数
+     * @param nr_fold 传入的训练的叠数
+     * @param target  待填入的预测值
+     */
     public static void svm_cross_validation(svm_problem prob, svm_parameter param, int nr_fold, double[] target) {
-        int i;
         int[] fold_start = new int[nr_fold + 1];
         int l = prob.l;
         int[] perm = new int[l];
@@ -2321,6 +2328,7 @@ public class svm {
         // Each class to l folds -> some folds may have zero elements
         if ((param.svm_type == svm_parameter.C_SVC ||
                 param.svm_type == svm_parameter.NU_SVC) && nr_fold < l) {
+            //数据聚类操作
             int[] tmp_nr_class = new int[1];
             int[][] tmp_label = new int[1][];
             int[][] tmp_start = new int[1][];
@@ -2332,31 +2340,30 @@ public class svm {
             int[] start = tmp_start[0];
             int[] count = tmp_count[0];
 
-            // random shuffle and then data grouped by fold using the array perm
+            //随机洗牌，然后用perm数组将数据分组折叠使
             int[] fold_count = new int[nr_fold];
-            int c;
             int[] index = new int[l];
-            for (i = 0; i < l; i++)
-                index[i] = perm[i];
-            for (c = 0; c < nr_class; c++)
-                for (i = 0; i < count[c]; i++) {
+            System.arraycopy(perm, 0, index, 0, l);
+            for (int c = 0; c < nr_class; c++)
+                for (int i = 0; i < count[c]; i++) {
+                    //取一个随机数，将数组随机洗牌
                     int j = i + rand.nextInt(count[c] - i);
-                    do {
+                    {
                         int tmp = index[start[c] + j];
                         index[start[c] + j] = index[start[c] + i];
                         index[start[c] + i] = tmp;
-                    } while (false);
+                    }
                 }
-            for (i = 0; i < nr_fold; i++) {
+            for (int i = 0; i < nr_fold; i++) {
                 fold_count[i] = 0;
-                for (c = 0; c < nr_class; c++)
+                for (int c = 0; c < nr_class; c++)
                     fold_count[i] += (i + 1) * count[c] / nr_fold - i * count[c] / nr_fold;
             }
             fold_start[0] = 0;
-            for (i = 1; i <= nr_fold; i++)
+            for (int i = 1; i <= nr_fold; i++)
                 fold_start[i] = fold_start[i - 1] + fold_count[i - 1];
-            for (c = 0; c < nr_class; c++)
-                for (i = 0; i < nr_fold; i++) {
+            for (int c = 0; c < nr_class; c++)
+                for (int i = 0; i < nr_fold; i++) {
                     int begin = start[c] + i * count[c] / nr_fold;
                     int end = start[c] + (i + 1) * count[c] / nr_fold;
                     for (int j = begin; j < end; j++) {
@@ -2364,53 +2371,57 @@ public class svm {
                         fold_start[i]++;
                     }
                 }
+            //每一叠开始的索引
             fold_start[0] = 0;
-            for (i = 1; i <= nr_fold; i++)
+            for (int i = 1; i <= nr_fold; i++)
                 fold_start[i] = fold_start[i - 1] + fold_count[i - 1];
         } else {
-            for (i = 0; i < l; i++) perm[i] = i;
-            for (i = 0; i < l; i++) {
+            for (int i = 0; i < l; i++) perm[i] = i;
+            for (int i = 0; i < l; i++) {
                 int j = i + rand.nextInt(l - i);
-                do {
+                {
                     int tmp = perm[i];
                     perm[i] = perm[j];
                     perm[j] = tmp;
-                } while (false);
+                }
             }
-            for (i = 0; i <= nr_fold; i++)
+            for (int i = 0; i <= nr_fold; i++)
                 fold_start[i] = i * l / nr_fold;
         }
 
-        for (i = 0; i < nr_fold; i++) {
+        //遍历每一叠数据
+        for (int i = 0; i < nr_fold; i++) {
             int begin = fold_start[i];
             int end = fold_start[i + 1];
-            int j, k;
-            svm_problem subprob = new svm_problem();
 
+            svm_problem subprob = new svm_problem();
             subprob.l = l - (end - begin);
             subprob.x = new svm_node[subprob.l][];
             subprob.y = new double[subprob.l];
 
-            k = 0;
-            for (j = 0; j < begin; j++) {
+            //将数据复制到子数据集
+            int k = 0;
+            for (int j = 0; j < begin; j++) {
                 subprob.x[k] = prob.x[perm[j]];
                 subprob.y[k] = prob.y[perm[j]];
                 ++k;
             }
-            for (j = end; j < l; j++) {
+            for (int j = end; j < l; j++) {
                 subprob.x[k] = prob.x[perm[j]];
                 subprob.y[k] = prob.y[perm[j]];
                 ++k;
             }
+
+            //将子数据集进行训练
             svm_model submodel = svm_train(subprob, param);
             if (param.probability == 1 &&
-                    (param.svm_type == svm_parameter.C_SVC ||
-                            param.svm_type == svm_parameter.NU_SVC)) {
-                double[] prob_estimates = new double[svm_get_nr_class(submodel)];
-                for (j = begin; j < end; j++)
-                    target[perm[j]] = svm_predict_probability(submodel, prob.x[perm[j]], prob_estimates);
+                    (param.svm_type == svm_parameter.C_SVC || param.svm_type == svm_parameter.NU_SVC)) {
+//                double[] prob_estimates = new double[svm_get_nr_class(submodel)];
+//                for (int j = begin; j < end; j++)
+//                    target[perm[j]] = svm_predict_probability(submodel, prob.x[perm[j]], prob_estimates);
             } else
-                for (j = begin; j < end; j++)
+                for (int j = begin; j < end; j++)
+                    //进行预测，填入预测值
                     target[perm[j]] = svm_predict(submodel, prob.x[perm[j]]);
         }
     }
@@ -2548,11 +2559,12 @@ public class svm {
     public static double svm_predict(svm_model model, svm_node[] x) {
         int nr_class = model.nr_class;  //类别个数
         double[] dec_values;    //决策值
+        //回归预测
         if (model.param.svm_type == svm_parameter.ONE_CLASS ||
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR)
             dec_values = new double[1];
-            //回归
+            //分类预测
         else
             dec_values = new double[nr_class * (nr_class - 1) / 2];
         return svm_predict_values(model, x, dec_values);

@@ -52,22 +52,22 @@ class svm_predict {
 
         //如果需要进行概率预测
         if (predict_probability == 1) {
-            //回归
-            if (svm_type == svm_parameter.EPSILON_SVR ||
-                    svm_type == svm_parameter.NU_SVR) {
-                svm_predict.info("Prob. model for test data: target value = predicted value + z,\n" +
-                        "z: Laplace distribution e^(-|z|/sigma)/(2sigma),sigma="
-                        + svm.svm_get_svr_probability(model) + "\n");
-                //分类
-            } else {
-                int[] labels = new int[nr_class];
-                svm.svm_get_labels(model, labels);
-                prob_estimates = new double[nr_class];
-                output.writeBytes("labels");
-                for (int j = 0; j < nr_class; j++)
-                    output.writeBytes(" " + labels[j]);
-                output.writeBytes("\n");
-            }
+//            //回归
+//            if (svm_type == svm_parameter.EPSILON_SVR ||
+//                    svm_type == svm_parameter.NU_SVR) {
+//                svm_predict.info("Prob. model for test data: target value = predicted value + z,\n" +
+//                        "z: Laplace distribution e^(-|z|/sigma)/(2sigma),sigma="
+//                        + svm.svm_get_svr_probability(model) + "\n");
+//                //分类
+//            } else {
+//                int[] labels = new int[nr_class];
+//                svm.svm_get_labels(model, labels);
+//                prob_estimates = new double[nr_class];
+//                output.writeBytes("labels");
+//                for (int j = 0; j < nr_class; j++)
+//                    output.writeBytes(" " + labels[j]);
+//                output.writeBytes("\n");
+//            }
         }
         //逐行读取，开始预测
         while (true) {
@@ -99,14 +99,14 @@ class svm_predict {
 //            }
 
             //预测值
-            double predict_label;
+            double predict_label = 0;
             if (predict_probability == 1 && (svm_type == svm_parameter.C_SVC || svm_type == svm_parameter.NU_SVC)) {
                 //进行概率预测
-                predict_label = svm.svm_predict_probability(model, x, prob_estimates);
-                output.writeBytes(predict_label + " ");
-                for (int j = 0; j < nr_class; j++)
-                    output.writeBytes(prob_estimates[j] + " ");
-                output.writeBytes("\n");
+//                predict_label = svm.svm_predict_probability(model, x, prob_estimates);
+//                output.writeBytes(predict_label + " ");
+//                for (int j = 0; j < nr_class; j++)
+//                    output.writeBytes(prob_estimates[j] + " ");
+//                output.writeBytes("\n");
             } else {
                 //进行非概率预测
                 predict_label = svm.svm_predict(model, x);

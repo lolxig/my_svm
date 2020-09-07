@@ -83,16 +83,17 @@ class svm_train {
 
     //交叉验证
     private void do_cross_validation() {
-        int i;
         int total_correct = 0;  //分类正确的数量
         double total_error = 0; //分类错误的数量
         double sumv = 0, sumy = 0, sumvv = 0, sumyy = 0, sumvy = 0;
         double[] target = new double[prob.l];
 
+        //做交叉验证
         svm.svm_cross_validation(prob, param, nr_fold, target);
+        //做回归预测
         if (param.svm_type == svm_parameter.EPSILON_SVR ||
                 param.svm_type == svm_parameter.NU_SVR) {
-            for (i = 0; i < prob.l; i++) {
+            for (int i = 0; i < prob.l; i++) {
                 double y = prob.y[i];
                 double v = target[i];
                 total_error += (v - y) * (v - y);
@@ -107,8 +108,9 @@ class svm_train {
                     ((prob.l * sumvy - sumv * sumy) * (prob.l * sumvy - sumv * sumy)) /
                             ((prob.l * sumvv - sumv * sumv) * (prob.l * sumyy - sumy * sumy)) + "\n"
             );
+        //做分类预测
         } else {
-            for (i = 0; i < prob.l; i++)
+            for (int i = 0; i < prob.l; i++)
                 if (target[i] == prob.y[i])
                     ++total_correct;
             System.out.print("Cross Validation Accuracy = " + 100.0 * total_correct / prob.l + "%\n");

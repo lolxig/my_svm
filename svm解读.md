@@ -79,3 +79,4 @@ svm_predict
         返回预测类别
 ```
 
+参考文档：https://www.cnblogs.com/bentuwuying/p/6574620.html

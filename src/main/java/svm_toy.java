@@ -6,6 +6,9 @@ import java.util.*;
 import java.awt.event.*;
 import java.io.*;
 
+/**
+ * 实测该类没有任何卵用.
+ */
 public class svm_toy extends Applet {
 
     static final String DEFAULT_PARAM = "-t 2 -c 100";
@@ -19,18 +22,16 @@ public class svm_toy extends Applet {
 
     // pre-allocated colors
 
-    final static Color colors[] =
-            {
+    final static Color[] colors = {
                     new Color(0, 0, 0),
                     new Color(0, 120, 120),
                     new Color(120, 120, 0),
                     new Color(120, 0, 120),
                     new Color(0, 200, 200),
                     new Color(200, 200, 0),
-                    new Color(200, 0, 200)
-            };
+                    new Color(200, 0, 200)};
 
-    class point {
+    static class point {
         point(double x, double y, byte value) {
             this.x = x;
             this.y = y;
@@ -41,7 +42,7 @@ public class svm_toy extends Applet {
         byte value;
     }
 
-    Vector<point> point_list = new Vector<point>();
+    Vector<point> point_list = new Vector<>();
     byte current_value = 1;
 
     public void init() {
@@ -84,42 +85,20 @@ public class svm_toy extends Applet {
         p.add(input_line);
         this.add(p, BorderLayout.SOUTH);
 
-        button_change.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_change_clicked();
-                button_change.setBackground(colors[current_value]);
-            }
+        button_change.addActionListener(e -> {
+            button_change_clicked();
+            button_change.setBackground(colors[current_value]);
         });
 
-        button_run.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_run_clicked(input_line.getText());
-            }
-        });
+        button_run.addActionListener(e -> button_run_clicked(input_line.getText()));
 
-        button_clear.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_clear_clicked();
-            }
-        });
+        button_clear.addActionListener(e -> button_clear_clicked());
 
-        button_save.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_save_clicked(input_line.getText());
-            }
-        });
+        button_save.addActionListener(e -> button_save_clicked(input_line.getText()));
 
-        button_load.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_load_clicked();
-            }
-        });
+        button_load.addActionListener(e -> button_load_clicked());
 
-        input_line.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                button_run_clicked(input_line.getText());
-            }
-        });
+        input_line.addActionListener(e -> button_run_clicked(input_line.getText()));
 
         this.enableEvents(AWTEvent.MOUSE_EVENT_MASK);
     }
@@ -155,20 +134,21 @@ public class svm_toy extends Applet {
     }
 
     private static double atof(String s) {
-        return Double.valueOf(s).doubleValue();
+        return Double.parseDouble(s);
     }
 
     private static int atoi(String s) {
         return Integer.parseInt(s);
     }
 
+    //点击运行按钮的动作
     void button_run_clicked(String args) {
         // guard
         if (point_list.isEmpty()) return;
 
         svm_parameter param = new svm_parameter();
 
-        // default values
+        //填充默认参数
         param.svm_type = svm_parameter.C_SVC;
         param.kernel_type = svm_parameter.RBF;
         param.degree = 3;
@@ -185,7 +165,7 @@ public class svm_toy extends Applet {
         param.weight_label = new int[0];
         param.weight = new double[0];
 
-        // parse options
+        //解析传入参数
         StringTokenizer st = new StringTokenizer(args);
         String[] argv = new String[st.countTokens()];
         for (int i = 0; i < argv.length; i++)
@@ -256,12 +236,14 @@ public class svm_toy extends Applet {
             }
         }
 
-        // build problem
+        //构建待解问题
         svm_problem prob = new svm_problem();
         prob.l = point_list.size();
         prob.y = new double[prob.l];
 
         if (param.kernel_type == svm_parameter.PRECOMPUTED) {
+
+        //回归模型
         } else if (param.svm_type == svm_parameter.EPSILON_SVR ||
                 param.svm_type == svm_parameter.NU_SVR) {
             if (param.gamma == 0) param.gamma = 1;
@@ -317,7 +299,8 @@ public class svm_toy extends Applet {
                 }
             }
         } else {
-            if (param.gamma == 0) param.gamma = 0.5;
+            if (param.gamma == 0)
+                param.gamma = 0.5;
             prob.x = new svm_node[prob.l][2];
             for (int i = 0; i < prob.l; i++) {
                 point p = point_list.elementAt(i);
