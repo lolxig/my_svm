@@ -1,6 +1,7 @@
 import libsvm.*;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 class svm_predict {
@@ -155,21 +156,7 @@ class svm_predict {
         System.exit(1);
     }
 
-    /**
-     * 入口类.
-     */
-    public static void main(String[] argv) throws IOException {
-        //默认打印函数
-        svm_print_string = svm_print_stdout;
-
-        FileReader in = new FileReader("local_param_predict");
-        char[] buff = new char[1024];
-        int len = in.read(buff);
-        //输入命令行参数
-        String inputParams = new String(buff, 0, len);
-        //切割命令行参数
-        argv = inputParams.split(" ");
-
+    public void run(String[] argv) throws IOException {
         int i, predict_probability = 0;
         //输入命令行参数解析
         for (i = 0; i < argv.length; i++) {
@@ -225,5 +212,39 @@ class svm_predict {
         } catch (FileNotFoundException | ArrayIndexOutOfBoundsException e) {
             exit_with_help();
         }
+    }
+
+    /**
+     * 入口类.
+     */
+    public static void main(String[] argv) throws IOException {
+
+        List<String[]> paramList = new ArrayList<>();
+        try (BufferedReader in = new BufferedReader(
+                new InputStreamReader(new FileInputStream("local_param_predict"), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = in.readLine()) != null) {
+                line = line.trim().replaceAll(" +", " ");
+                paramList.add(line.split(" "));
+            }
+        }
+
+
+//        FileReader in = new FileReader("local_param_predict");
+//        char[] buff = new char[1024];
+//        int len = in.read(buff);
+//        //输入命令行参数
+//        String inputParams = new String(buff, 0, len);
+//        //切割命令行参数
+//        argv = inputParams.split(" ");
+
+        //默认打印函数
+        svm_print_string = svm_print_stdout;
+
+        for (String[] params : paramList) {
+            svm_predict predict = new svm_predict();
+            predict.run(params);
+        }
+
     }
 }
