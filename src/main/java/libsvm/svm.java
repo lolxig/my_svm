@@ -696,7 +696,7 @@ class Solver {
                 update_alpha_status(j);
 
                 if (ui != is_upper_bound(i)) {  //如果错分点情况发生了变化
-                    Q_i = Q.get_Q(i, l);
+                    Q_i = Q.get_Q(i, l); //重新获取Q矩阵
                     if (ui)                     //如果是纠正了错分点，则梯度正确下降
                         for (int k = 0; k < l; k++)
                             G_bar[k] -= C_i * Q_i[k];
