@@ -152,7 +152,6 @@ class svm_scale {
             }
             fp_restore.readLine();
             fp_restore.readLine();
-
             String restore_line = null;
             while ((restore_line = fp_restore.readLine()) != null) {
                 StringTokenizer st2 = new StringTokenizer(restore_line);

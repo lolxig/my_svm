@@ -579,7 +579,7 @@ class Solver {
                 counter = Math.min(l, 1000);
                 if (shrinking != 0)
                     do_shrinking();
-                svm.info(".");
+//                svm.info(".");
             }
 
             //等于1表示当前参数已经达到最优解，等于0表示选择到了最大违反对
@@ -588,7 +588,7 @@ class Solver {
                 reconstruct_gradient();
                 //检查整个样本集
                 active_size = l;
-                svm.info("*");
+//                svm.info("*");
                 //重建梯度之后对整个样本集进行检查，如果仍然得到最优解，则表示是真的最优解
                 if (select_working_set(working_set) != 0)
                     break;
@@ -723,7 +723,7 @@ class Solver {
                 //重建梯度来计算目标值
                 reconstruct_gradient();
                 active_size = l;
-                svm.info("*");
+//                svm.info("*");
             }
             System.err.print("\nWARNING: reaching max number of iterations\n");
         }
@@ -748,7 +748,7 @@ class Solver {
         si.upper_bound_p = Cp;
         si.upper_bound_n = Cn;
 
-        svm.info("\noptimization finished, #iter = " + iter + "\n");
+//        svm.info("\noptimization finished, #iter = " + iter + "\n");
     }
 
     /**
@@ -1388,8 +1388,8 @@ public class svm {
         for (int i = 0; i < l; i++)
             sum_alpha += alpha[i];
 
-        if (Cp == Cn)
-            svm.info("nu = " + sum_alpha / (Cp * prob.l) + "\n");
+//        if (Cp == Cn)
+//            svm.info("nu = " + sum_alpha / (Cp * prob.l) + "\n");
 
         //得到alpha*y
         for (int i = 0; i < l; i++)
@@ -1546,25 +1546,25 @@ public class svm {
         double rho;
     }
 
-    /**
-     * 训练单个决策参数.
-     *
-     * @param prob  排列好的数据集
-     * @param param 模型参数
-     * @param Cp    第一个类的权重
-     * @param Cn    第二个类的权重
-     * @param latch 多线程执行参数
-     * @return 训练好的决策参数
-     */
-    static decision_function svm_train_one(svm_problem prob,
-                                           svm_parameter param,
-                                           double Cp,
-                                           double Cn,
-                                           CountDownLatch latch) {
-        decision_function f = svm_train_one(prob, param, Cp, Cn);
-        latch.countDown();
-        return f;
-    }
+//    /**
+//     * 训练单个决策参数.
+//     *
+//     * @param prob  排列好的数据集
+//     * @param param 模型参数
+//     * @param Cp    第一个类的权重
+//     * @param Cn    第二个类的权重
+//     * @param latch 多线程执行参数
+//     * @return 训练好的决策参数
+//     */
+//    static decision_function svm_train_one(svm_problem prob,
+//                                           svm_parameter param,
+//                                           double Cp,
+//                                           double Cn,
+//                                           CountDownLatch latch) {
+//        decision_function f = svm_train_one(prob, param, Cp, Cn);
+//        latch.countDown();
+//        return f;
+//    }
 
     /**
      * 训练单个决策参数.
@@ -1599,7 +1599,7 @@ public class svm {
         //打印得到的参数
         //obj 将SVM转换为二次规划求得的最小值
         //rho 判决函数的偏置项b
-        svm.info("obj = " + si.obj + ", rho = " + si.rho + "\n");
+//        svm.info("obj = " + si.obj + ", rho = " + si.rho + "\n");
 
         //输出支持向量
         int nSV = 0;    //标准支持向量个数(0<a[i]<c)
@@ -1619,7 +1619,7 @@ public class svm {
         }
 
         //打印支持向量信息
-        svm.info("nSV = " + nSV + ", nBSV = " + nBSV + "\n");
+//        svm.info("nSV = " + nSV + ", nBSV = " + nBSV + "\n");
 
         //保存训练参数
         decision_function f = new decision_function();
@@ -2032,7 +2032,8 @@ public class svm {
         public void run() {
             System.out.printf("模型训练线程[%d]开始执行.\n", p);
             long start = System.currentTimeMillis();
-            f[p] = svm_train_one(sub_prob, param, Cp, Cn, latch);
+            f[p] = svm_train_one(sub_prob, param, Cp, Cn);
+            latch.countDown();
             for (int k = 0; k < ci; k++)
                 if (!nonzero[si + k] && Math.abs(f[p].alpha[k]) > 0)
                     nonzero[si + k] = true;
@@ -2218,7 +2219,7 @@ public class svm {
                 System.err.println("多线程等待执行出错，请检查！");
                 System.exit(1);
             }
-            System.out.println("\n所有模型训练完毕，开始保存模型.\n");
+//            System.out.println("\n所有模型训练完毕，开始保存模型.\n");
 
             //填充svm_model对象model
 
@@ -2261,7 +2262,7 @@ public class svm {
                 nz_count[i] = nSV;
             }
 
-            svm.info("Total nSV = " + total_sv + "\n");
+//            svm.info("Total nSV = " + total_sv + "\n");
 
             //模型支持向量总数
             model.l = total_sv;
@@ -2612,7 +2613,7 @@ public class svm {
     /**
      * 保存模型model到文件model_file_name里面去.
      */
-    public static void svm_save_model(String model_file_name, svm_model model) throws IOException {
+    public static synchronized void svm_save_model(String model_file_name, svm_model model) throws IOException {
 
         //数据输出流
         DataOutputStream fp = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(model_file_name)));
@@ -2692,8 +2693,8 @@ public class svm {
             if (param.kernel_type == svm_parameter.PRECOMPUTED)
                 fp.writeBytes("0:" + (int) (p[0].value));
             else
-                for (int j = 0; j < p.length; j++)
-                    fp.writeBytes(p[j].index + ":" + p[j].value + " ");
+                for (libsvm.svm_node svm_node : p)
+                    fp.writeBytes(svm_node.index + ":" + svm_node.value + " ");
             fp.writeBytes("\n");
         }
 
@@ -3004,7 +3005,6 @@ public class svm {
                 }
             }
         }
-
         return null;
     }
 

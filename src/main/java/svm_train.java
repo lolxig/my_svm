@@ -1,11 +1,17 @@
 import libsvm.*;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 
-class svm_train {
+class svm_train implements Runnable {
+
+    public static svm_problem prob;       //读取的特征集和标签集数据转换为问题
+    public static CountDownLatch latch;
+
+    private String[] args;          //命令行参数
     private svm_parameter param;    //通过命令行获取的各种参数
-    private svm_problem prob;       //读取的特征集和标签集数据转换为问题
     private String input_file_name; //输入文件路径
     private String model_file_name; //模型文件路径
     private int cross_validation;   //交叉验证选择核函数标志位，默认为0，可以通过-v 参数设置为1
@@ -43,7 +49,7 @@ class svm_train {
                         //设置degree，默认为3
                         + "-d degree : set degree in kernel function (default 3)\n"
 
-                        //设置核函数中γ的值，默认为1/k，k为特征（或者说是属性）数
+                        //设置核函数中γ的值，默认为1/k，k为特征（或者说是属性）数，默认值为1/特征数量
                         + "-g gamma : set gamma in kernel function (default 1/num_features)\n"
 
                         //设置核函数中的coef 0，默认值为0
@@ -123,7 +129,11 @@ class svm_train {
         parse_command_line(argv);
 
         //读取数据文件，并将数据切分成特征集和标签集，存放到SvmProblem prob中
-        read_problem();
+        if (prob == null) {
+            System.out.println("数据集文件没读进来！！");
+            System.exit(1);
+            read_problem();
+        }
 
         //参数检查
         String error_msg = svm.svm_check_parameter(prob, param);
@@ -143,17 +153,46 @@ class svm_train {
         }
     }
 
-    public static void main(String[] argv) throws IOException {
-        FileReader in = new FileReader("local_param_train");
-        char[] buff = new char[1024];
-        int len = in.read(buff);
-        //输入命令行参数
-        String inputParams = new String(buff, 0, len);
-        //切割命令行参数
-        String[] params = inputParams.split(" ");
+    @Override
+    public void run() {
+        try {
+            System.out.println(String.join(" ", args) + "-----开始启动.");
+            run(this.args);
+            latch.countDown();
+        } catch (IOException e) {
+            System.out.println(e.getMessage());
+        }
+    }
 
-        svm_train t = new svm_train();
-        t.run(params);
+    public static void main(String[] argv) throws IOException {
+
+        List<String[]> paramList = new ArrayList<>();
+        try (BufferedReader in = new BufferedReader(
+                new InputStreamReader(new FileInputStream("local_param_train"), StandardCharsets.UTF_8))) {
+            String line = in.readLine();
+            svm_train read = new svm_train();
+            read.input_file_name = line;
+            read.read_problem();
+
+            while ((line = in.readLine()) != null) {
+                line = line.trim().replaceAll(" +", " ");
+                paramList.add(line.split(" "));
+            }
+        }
+
+        latch = new CountDownLatch(paramList.size());
+        for (String[] params : paramList) {
+            svm_train train = new svm_train();
+            train.args = params;
+            new Thread(train).start();
+        }
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            System.out.println(e.getMessage());
+        }
+        System.out.println("程序执行完毕.");
     }
 
     private static double atof(String s) {
@@ -343,23 +382,26 @@ class svm_train {
         for (int i = 0; i < prob.l; i++)
             prob.y[i] = vy.elementAt(i);
 
-        //设置默认gamma值
-        if (param.gamma == 0 && max_index > 0)
-            param.gamma = 1.0 / max_index;
+        //初次读取的时候是空的
+        if (param != null) {
+            //如果没有设置gamma值，则设置默认gamma值
+            if (param.gamma == 0 && max_index > 0)
+                param.gamma = 1.0 / max_index;
 
-        //用户自定义核函数
-        if (param.kernel_type == svm_parameter.PRECOMPUTED)
-            for (int i = 0; i < prob.l; i++) {
-                if (prob.x[i][0].index != 0) {
-                    System.err.print("Wrong kernel matrix: first column must be 0:sample_serial_number\n");
-                    System.exit(1);
+            //用户自定义核函数
+            if (param.kernel_type == svm_parameter.PRECOMPUTED)
+                for (int i = 0; i < prob.l; i++) {
+                    if (prob.x[i][0].index != 0) {
+                        System.err.print("Wrong kernel matrix: first column must be 0:sample_serial_number\n");
+                        System.exit(1);
+                    }
+                    if ((int) prob.x[i][0].value <= 0 || (int) prob.x[i][0].value > max_index) {
+                        System.err.print("Wrong input format: sample_serial_number out of range\n");
+                        System.exit(1);
+                    }
                 }
-                if ((int) prob.x[i][0].value <= 0 || (int) prob.x[i][0].value > max_index) {
-                    System.err.print("Wrong input format: sample_serial_number out of range\n");
-                    System.exit(1);
-                }
-            }
-
+        }
         fp.close();
     }
+
 }
