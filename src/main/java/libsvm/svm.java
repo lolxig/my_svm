@@ -2451,8 +2451,7 @@ public class svm {
 
     public static void svm_get_sv_indices(svm_model model, int[] indices) {
         if (model.sv_indices != null)
-            for (int i = 0; i < model.l; i++)
-                indices[i] = model.sv_indices[i];
+            if (model.l >= 0) System.arraycopy(model.sv_indices, 0, indices, 0, model.l);
     }
 
     public static int svm_get_nr_sv(svm_model model) {
@@ -2478,17 +2477,18 @@ public class svm {
      * @return 分类结果
      */
     public static double svm_predict_values(svm_model model, svm_node[] x, double[] dec_values) {
-        //one_class或者是回归预测
+        //one-class或者是回归预测
         if (model.param.svm_type == svm_parameter.ONE_CLASS ||
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR) {
             double[] sv_coef = model.sv_coef[0];
-            double sum = 0;
+            double sum = 0; //对于one-class，决策函数f(x) = sgn(wK(x) - p)
             for (int i = 0; i < model.l; i++)
                 sum += sv_coef[i] * Kernel.k_function(x, model.SV[i], model.param);
             sum -= model.rho[0];
             dec_values[0] = sum;
 
+            //one-class的决策边界
             if (model.param.svm_type == svm_parameter.ONE_CLASS)
                 return (sum > 0) ? 1 : -1;
             else
@@ -2564,7 +2564,7 @@ public class svm {
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR)
             dec_values = new double[1];
-            //分类预测
+        //分类预测
         else
             dec_values = new double[nr_class * (nr_class - 1) / 2];
         return svm_predict_values(model, x, dec_values);

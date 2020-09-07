@@ -40,7 +40,8 @@ class svm_predict {
      * @param model               训练好的模型
      * @param predict_probability 是否进行概率预测
      */
-    private static void predict(BufferedReader input, DataOutputStream output, svm_model model, int predict_probability) throws IOException {
+    private static void predict(BufferedReader input, DataOutputStream output,
+                                svm_model model, int predict_probability) throws IOException {
         int correct = 0;    //正确分类的个数
         int total = 0;      //总个数
         double error = 0;   //错分类个数
