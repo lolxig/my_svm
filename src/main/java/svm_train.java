@@ -168,12 +168,10 @@ class svm_train implements Runnable {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(new FileInputStream("local_param_train"), StandardCharsets.UTF_8))) {
             String line = in.readLine();
-            if (line.equals("svc")) {
-                line = in.readLine();
-                svm_train read = new svm_train();
-                read.input_file_name = line;
-                read.read_problem();
-            }
+
+            svm_train read = new svm_train();
+            read.input_file_name = line;
+            read.read_problem();
 
             while ((line = in.readLine()) != null) {
                 line = line.trim().replaceAll(" +", " ");

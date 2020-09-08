@@ -1477,11 +1477,11 @@ public class svm {
 
         int n = (int) (param.nu * prob.l);    // # of alpha's at upper bound
 
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < n; i++) //nu比例前全为正
             alpha[i] = 1;
-        if (n < prob.l) //正例系数
+        if (n < prob.l)     //边界点
             alpha[n] = param.nu * prob.l - n;
-        for (int i = n + 1; i < l; i++)
+        for (int i = n + 1; i < l; i++) ////nu比例前全为负
             alpha[i] = 0;
 
         for (int i = 0; i < l; i++) {
