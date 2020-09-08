@@ -4,12 +4,10 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-//
-// Kernel Cache
-//
-// l is the number of total data items
-// size is the cache size limit in bytes
-//
+
+/**
+ * 核函数缓存，采用LRU算法.
+ */
 class Cache {
     private final int l; //数据集大小
     private long size;  //缓存大小
@@ -17,13 +15,13 @@ class Cache {
 
     //单块申请到的内存用class head_t来记录所申请内存，并记录长度。而且通过双向的指针，形成链表，增加寻址的速度
     private static final class head_t {
-        head_t prev, next;    // a cicular list
-        float[] data;
-        int len;        // data[0,len) is cached in this entry
+        head_t prev, next;    //循环队列头部
+        float[] data;   //核函数数据缓存
+        int len;        //data的大小
     }
 
     private final head_t[] head;    //类似于变量指针，该指针用来记录程序所申请的内存
-    private final head_t lru_head;  //LRU缓存节点
+    private final head_t lru_head;  //LRU缓存头
 
     /**
      * @param l_    数据集size
@@ -49,7 +47,7 @@ class Cache {
         h.next.prev = h.prev;
     }
 
-    //插入一个几点，尾插法
+    //插入一个节点点，尾插法
     private void lru_insert(head_t h) {
         // insert to last position
         h.next = lru_head;
@@ -62,12 +60,16 @@ class Cache {
     // return some position p where [p,len) need to be filled
     // (p >= len if nothing needs to be filled)
     // java: simulate pointer using single-element array
+
+    // LRU缓存算法
+    //  - 要访问的节点如果存在，则删除它，并将其放入到队尾
+    //  - 如果要插入新节点，并且缓存空间不足的时候，将队头的节点释放掉，直至有足够的缓存空间
     int get_data(int index, float[][] data, int len) {
         head_t h = head[index];
-        //如果head[index]已经被使用，删掉它，释放这个节点的内存
+        //访问index节点，如果存在，则将其更新到队尾
         if (h.len > 0)
             lru_delete(h);
-        //计算需要的内存
+        //如果需要的内存大于h已分配的内存，则进行内存重新分配
         int more = len - h.len;
 
         //如果将head[index]释放之后，仍然需要更多的内存，则进行分配
@@ -81,57 +83,63 @@ class Cache {
                 old.len = 0;
             }
 
-            //重新分配内存
+            //分配新的内存，并且将原数据copy到新分配的几点里面去
             float[] new_data = new float[len];
-            //将原数据拷贝到新的内存块
             if (h.data != null)
                 System.arraycopy(h.data, 0, new_data, 0, h.len);
             h.data = new_data;
             //扣除使用掉的内存
             size -= more;
+            //交换缓存区间长度
             {
                 int tmp = h.len;
                 h.len = len;
                 len = tmp;
             }
         }
-        //将重新分配后的内存插入链表中
+        //将访问过的节点插入到队列尾部
         lru_insert(h);
-        data[0] = h.data;
-        return len;
+        data[0] = h.data;   //获取节点数据
+        return len;         //获取访问长度
     }
 
+    //页面置换，这里是节点置换
     void swap_index(int i, int j) {
         if (i == j) return;
 
+        //若节点数据不为空，则将节点从链表中取出
         if (head[i].len > 0) lru_delete(head[i]);
         if (head[j].len > 0) lru_delete(head[j]);
-        do {
+
+        //交换两节点的数据
+        {
             float[] tmp = head[i].data;
             head[i].data = head[j].data;
             head[j].data = tmp;
-        } while (false);
-        do {
+        }
+        //交换两节点的数据长度
+        {
             int tmp = head[i].len;
             head[i].len = head[j].len;
             head[j].len = tmp;
-        } while (false);
+        }
+        //如果交换后两节点数据不为空，则将两个节点放入到队列尾部
         if (head[i].len > 0) lru_insert(head[i]);
         if (head[j].len > 0) lru_insert(head[j]);
 
-        if (i > j) do {
+        if (i > j) {
             int tmp = i;
             i = j;
             j = tmp;
-        } while (false);
+        }
+        //完全交换两个点在每个节点中的数据
         for (head_t h = lru_head.next; h != lru_head; h = h.next) {
             if (h.len > i) {
-                if (h.len > j)
-                    do {
-                        float tmp = h.data[i];
-                        h.data[i] = h.data[j];
-                        h.data[j] = tmp;
-                    } while (false);
+                if (h.len > j) {
+                    float tmp = h.data[i];
+                    h.data[i] = h.data[j];
+                    h.data[j] = tmp;
+                }
                 else {
                     // give up
                     lru_delete(h);
@@ -404,7 +412,7 @@ class Solver {
      * 完全交换样本 i 和样本 j 的内容，包括申请的内存的地址.
      */
     void swap_index(int i, int j) {
-        //交换特征
+        //交换Q矩阵，同时刷新到了cache里面去
         Q.swap_index(i, j);
         //交换标签
         {
@@ -1196,11 +1204,18 @@ class SVC_Q extends Kernel {
             QD[i] = kernel_function(i, i);
     }
 
-    //在活跃样本上计算Q = sum yi*y*K(xi, xj)，len
+    /**
+     * 求节点i在数据集[0,len)长度上的Q矩阵.  Q_i = sum yi*yj*K(xi, xj)，j∈[0,len)
+     *
+     * @param i   节点i
+     * @param len 在数据集上的长度，有可能是整个数据集，有可能是active_size
+     */
     float[] get_Q(int i, int len) {
         float[][] data = new float[1][];
         int start;
+        //从缓存中获取Q矩阵数据，如果小于传入的参数len，则表示获取的数据不全，需要从start进行更新，到len为止
         if ((start = cache.get_data(i, data, len)) < len) {
+            //获取数据不对，更新
             for (int j = start; j < len; j++)
                 data[0][j] = (float) (y[i] * y[j] * kernel_function(i, j));
         }
@@ -1211,6 +1226,7 @@ class SVC_Q extends Kernel {
         return QD;
     }
 
+    //相当于页面置换.
     void swap_index(int i, int j) {
         cache.swap_index(i, j);
         super.swap_index(i, j);
@@ -2565,7 +2581,7 @@ public class svm {
                 model.param.svm_type == svm_parameter.EPSILON_SVR ||
                 model.param.svm_type == svm_parameter.NU_SVR)
             dec_values = new double[1];
-        //分类预测
+            //分类预测
         else
             dec_values = new double[nr_class * (nr_class - 1) / 2];
         return svm_predict_values(model, x, dec_values);
