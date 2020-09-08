@@ -2,6 +2,8 @@
 .gradle
 out
 build
+src/test
 local_param_train
 local_param_predict
-src/test
+svc_train
+svc_predict

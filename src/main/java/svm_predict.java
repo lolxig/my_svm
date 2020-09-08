@@ -229,7 +229,6 @@ class svm_predict {
             }
         }
 
-
 //        FileReader in = new FileReader("local_param_predict");
 //        char[] buff = new char[1024];
 //        int len = in.read(buff);
@@ -242,8 +241,10 @@ class svm_predict {
         svm_print_string = svm_print_stdout;
 
         for (String[] params : paramList) {
+            long start = System.currentTimeMillis();
             svm_predict predict = new svm_predict();
             predict.run(params);
+            System.out.printf("文件：%s，耗时：%dms\n", params[1], System.currentTimeMillis() - start);
         }
 
     }

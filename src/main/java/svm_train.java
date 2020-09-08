@@ -130,8 +130,6 @@ class svm_train implements Runnable {
 
         //读取数据文件，并将数据切分成特征集和标签集，存放到SvmProblem prob中
         if (prob == null) {
-            System.out.println("数据集文件没读进来！！");
-            System.exit(1);
             read_problem();
         }
 
@@ -170,9 +168,12 @@ class svm_train implements Runnable {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(new FileInputStream("local_param_train"), StandardCharsets.UTF_8))) {
             String line = in.readLine();
-            svm_train read = new svm_train();
-            read.input_file_name = line;
-            read.read_problem();
+            if (line.equals("svc")) {
+                line = in.readLine();
+                svm_train read = new svm_train();
+                read.input_file_name = line;
+                read.read_problem();
+            }
 
             while ((line = in.readLine()) != null) {
                 line = line.trim().replaceAll(" +", " ");

@@ -587,7 +587,7 @@ class Solver {
                 counter = Math.min(l, 1000);
                 if (shrinking != 0)
                     do_shrinking();
-//                svm.info(".");
+                svm.info(".");
             }
 
             //等于1表示当前参数已经达到最优解，等于0表示选择到了最大违反对
@@ -596,7 +596,7 @@ class Solver {
                 reconstruct_gradient();
                 //检查整个样本集
                 active_size = l;
-//                svm.info("*");
+                svm.info("*");
                 //重建梯度之后对整个样本集进行检查，如果仍然得到最优解，则表示是真的最优解
                 if (select_working_set(working_set) != 0)
                     break;
@@ -731,7 +731,7 @@ class Solver {
                 //重建梯度来计算目标值
                 reconstruct_gradient();
                 active_size = l;
-//                svm.info("*");
+                svm.info("*");
             }
             System.err.print("\nWARNING: reaching max number of iterations\n");
         }
@@ -756,7 +756,7 @@ class Solver {
         si.upper_bound_p = Cp;
         si.upper_bound_n = Cn;
 
-//        svm.info("\noptimization finished, #iter = " + iter + "\n");
+        svm.info("\noptimization finished, #iter = " + iter + "\n");
     }
 
     /**
@@ -1615,7 +1615,7 @@ public class svm {
         //打印得到的参数
         //obj 将SVM转换为二次规划求得的最小值
         //rho 判决函数的偏置项b
-//        svm.info("obj = " + si.obj + ", rho = " + si.rho + "\n");
+        svm.info("obj = " + si.obj + ", rho = " + si.rho + "\n");
 
         //输出支持向量
         int nSV = 0;    //标准支持向量个数(0<a[i]<c)
@@ -1635,7 +1635,7 @@ public class svm {
         }
 
         //打印支持向量信息
-//        svm.info("nSV = " + nSV + ", nBSV = " + nBSV + "\n");
+        svm.info("nSV = " + nSV + ", nBSV = " + nBSV + "\n");
 
         //保存训练参数
         decision_function f = new decision_function();
